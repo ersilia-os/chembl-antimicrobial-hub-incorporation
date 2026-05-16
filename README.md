@@ -1,84 +1,29 @@
-# Ersilia's analysis template
+# chembl-antimicrobial-hub-incorporation
 
-This repository provides a structured template for setting up new research analysis in Ersilia.
+Coordinator repo for packaging the 15 pathogen-specific antimicrobial-activity QSAR models from [`ersilia-os/chembl-antimicrobial-models`](https://github.com/ersilia-os/chembl-antimicrobial-models) into the [Ersilia Model Hub](https://github.com/ersilia-os/ersilia). One Hub model per pathogen (`eosXXXX`).
 
-## Background
+## What lives here
 
-<Replace this paragraph with a short description of the project. This description should explain the background or context of the project, specifying collaborators.>
+- [CLAUDE.md](CLAUDE.md) — overall workflow, monitoring table for the 15 pathogens, and the key principles that apply to every per-pathogen build.
+- [docs/per-pathogen-runbook.md](docs/per-pathogen-runbook.md) — full step-by-step procedure (steps 0–v) for one pathogen, distilled from the abaumannii / eos21dr build session.
+- [scripts/](scripts/) — placeholder for helper utilities (bulk issue creation, fork management, monitoring-table updates).
+- `eos*/` — per-pathogen forks cloned in-place; each one is its own git repo (`arnaucoma24/eosXXXX`) and is `.gitignore`d from this coordinator's git.
 
-## 🚀 Getting Started
+The actual QSAR weights, training data, and consensus-scoring logic all live in [`ersilia-os/chembl-antimicrobial-models`](https://github.com/ersilia-os/chembl-antimicrobial-models) (referenced via `$PATH_TO_CAMM`). This repo doesn't store data or run analyses — it's a workspace + documentation hub.
 
-<Replace this bit with any relevant information about how to use this repository>
+## Getting started
 
 ```bash
-git clone <your-repo-url>
-cd <your-repo-url>
+git clone git@github.com:ersilia-os/chembl-antimicrobial-hub-incorporation.git
+cd chembl-antimicrobial-hub-incorporation
+
+export PATH_TO_CAMM=/path/to/your/clone/of/chembl-antimicrobial-models
 ```
 
-### Tracking details
-
-The project is is tracked in [GitHub](https://github.com/ersilia-os/) (code) and [EOSVC](https://github.com/ersilia-os/eosvc) (data):
-
-* Tracked by Git and linked to a Github repository: only src, scripts and notebooks.
-* Tracked by eosvc and linked to a public or private S3 bucket. Only the data/ and output/ folder are eosvc tracked.
-
-## Repository structure
-
-This repository is organized as follows:
-
-```
-eos-analysis-template/
-│
-├── LICENSE
-├── README.md
-├── .gitignore
-├── requirements.txt
-├── data/
-│   ├── raw/
-│   └── processed/
-├── scripts/
-├── notebooks/
-├── assets/
-├── output/
-├── src/
-├── tools/
-├── docs/
-├── tmp/
-└── .git/
-```
-
-- **data/**
-  - **raw/** → Original, untouched datasets  
-  - **processed/** → Cleaned and transformed datasets  
-
-- **scripts/** → Standalone scripts for preprocessing or automation. Numbered in sequential order for running 
-
-- **notebooks/** → Jupyter notebooks for exploration and prototyping  
-
-- **assets/** → Images, figures, and other static resources  
-
-- **output/** → Results of the scripts, numbered by file or folder according to the scripts numbering  
-
-- **src/** → Core source code and reusable modules  
-
-- **tools/** → Helper utilities and development tools  
-
-- **docs/** → Project documentation and reports, including AI-generated docs and files
-
-- **tmp/** → Temporary files or intermediate outputs  
-
-- **.git/** → Git metadata (version control)  
-
-- **requirements.txt** → version-specified list of packages required to run the analysis
-
----
-
-📌 Empty folders are preserved with `.gitkeep` files so the structure remains consistent in Git.
-
----
+Then open [CLAUDE.md](CLAUDE.md) and pick a pathogen to work on from the monitoring table.
 
 ## About the Ersilia Open Source Initiative
 
-The [Ersilia Open Source Initiative](https://ersilia.io) is a tech-nonprofit organization fueling sustainable research in the Global South. Ersilia's main asset is the [Ersilia Model Hub](https://github.com/ersilia-os/ersilia), an open-source repository of AI/ML models for antimicrobial drug discovery.
+The [Ersilia Open Source Initiative](https://ersilia.io) is a tech-nonprofit organisation fuelling sustainable research in the Global South. Ersilia's main asset is the [Ersilia Model Hub](https://github.com/ersilia-os/ersilia), an open-source repository of AI/ML models for antimicrobial drug discovery.
 
 ![Ersilia Logo](assets/Ersilia_Brand.png)

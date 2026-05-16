@@ -1,9 +1,7 @@
-# Managed by Ersilia Version Control (eosvc)
-data/
-output/
+# Per-pathogen Ersilia model forks (each cloned in-place, tracked in its own git)
+eos*/
 
 # Manually added
-tmp/
 .DS_Store
 .vscode/
 

@@ -23,7 +23,7 @@ Per-pathogen progress through the incorporation workflow. Update each column as 
 
 | pathogen | issue # | forked to arnaucoma24 | model prepared | PR merged | workflows passed | fork removed |
 |----------|---------|-----------------------|----------------|-----------|------------------|--------------|
-| abaumannii    | [#1849](https://github.com/ersilia-os/ersilia/issues/1849) | True  | False | False | False | False |
+| abaumannii    | [#1849](https://github.com/ersilia-os/ersilia/issues/1849) | True  | True  | False | False | False |
 | efaecium      | —    | False | False | False | False | False |
 | saureus       | —    | False | False | False | False | False |
 | kpneumoniae   | —    | False | False | False | False | False |
@@ -63,249 +63,89 @@ Update the [monitoring table](#monitoring-table) as each step completes.
 
 ---
 
-## Step iii — Preparing the model (detailed)
+## Per-pathogen runbook
 
-The forked model repo (`arnaucoma24/eosXXXX`, to be PRed into `ersilia-os/eosXXXX`) has this structure:
+The full step-by-step procedure for steps iii–v lives in **[docs/per-pathogen-runbook.md](docs/per-pathogen-runbook.md)**. Read it (or skim the section you need) at the start of each pathogen. It was distilled from the abaumannii / eos21dr build session on 2026-05-16 and captures every gotcha we hit.
 
-```
-eosXXXX/
-├── metadata.yml          ← fill in all fields
-├── install.yml           ← add all dependencies with pinned versions
-├── model/
-│   ├── checkpoints/      ← copy model weights here
-│   └── framework/
-│       ├── run.sh        ← already correct (calls main.py)
-│       ├── code/
-│       │   └── main.py   ← implement full inference pipeline
-│       ├── columns/
-│       │   └── run_columns.csv  ← define the output columns
-│       └── examples/
-│           ├── run_input.csv    ← 3 example SMILES
-│           └── run_output.csv   ← expected output for those 3
-```
-
-### iii.1 — Checkpoints
-
-Copy from `$PATH_TO_CAMM/output/results/09_models/{pathogen}/` into `model/checkpoints/`:
-
-```
-model/checkpoints/
-├── individual_inhibition/     ← full sub-model dir (ONNX weights + featurizer.json + metadata.json)
-├── merged_mic_decoys/
-├── general_mic/
-├── general_activity_decoys/
-├── general_mic50/
-├── featurizer_weights/        ← copy from $PATH_TO_CAMM/output/results/08_weights/.lazyqsar/
-│   ├── chemeleon_mp.pt        (~200 MB — needed for Chemeleon featurizer)
-│   ├── clamp_encoder.onnx     (~200 MB — needed for CLAMP featurizer)
-│   ├── cddd_encoder.onnx      (needed for CDDD featurizer, if used)
-│   └── cddd_encoder_smiles.csv
-└── reports.csv                ← copy ONLY {pathogen} rows from $PATH_TO_CAMM/output/results/10_reports.csv
-```
-
-**Sub-models vary per pathogen.** The list above (5 sub-models) is the abaumannii case; for other pathogens, check which sub-model directories exist under `$PATH_TO_CAMM/output/results/09_models/{pathogen}/` and adapt the `model_dir_dict` in `main.py` and the output columns accordingly.
-
-**Note on featurizer weights size**: `08_weights/.lazyqsar/` is ~612 MB total. These need to be in checkpoints so the Hub can serve them. Use Git LFS (`.gitattributes` is configured in the eosXXXX template for `*.pt`, `*.onnx`, `*.h5`).
-
-Each sub-model directory looks like:
-```
-{model_name}/
-├── metadata.json
-├── featurizer.json
-├── applicability_domain.onnx
-├── applicability_domain.json
-├── batch_0/
-│   ├── preprocessor.onnx + preprocessor.json
-│   ├── xgb.onnx + xgb.json         ← algorithm weights
-│   └── rf.onnx + rf.json
-└── batch_1/     ← only for models that have 2 batches (check num_batches in metadata.json)
-```
-
-### iii.2 — main.py
-
-The inference pipeline must:
-
-1. **Read SMILES** from the input CSV (one column, header = `smiles`)
-2. **Run LazyQSAR inference** for all sub-models using the `lqsar_predict` API:
-
-```python
-from lazyqsar.api.classifier_predict import predict as lqsar_predict
-
-# Point LazyQSAR to the featurizer weights
-os.environ["HOME"] = os.path.join(root, "..", "checkpoints", "featurizer_weights_home")
-# (create a dir that has .lazyqsar/ inside pointing to featurizer_weights/)
-
-# Adapt this dict to the sub-models actually present for this pathogen
-model_dir_dict = {
-    "individual_inhibition":    os.path.join(checkpoints, "individual_inhibition"),
-    "merged_mic_decoys":        os.path.join(checkpoints, "merged_mic_decoys"),
-    "general_mic":              os.path.join(checkpoints, "general_mic"),
-    "general_activity_decoys":  os.path.join(checkpoints, "general_activity_decoys"),
-    "general_mic50":            os.path.join(checkpoints, "general_mic50"),
-}
-
-lqsar_predict(
-    model_dir=model_dir_dict,
-    input_csv=input_file,
-    output_csv=tmp_output,
-    predict_type="probability",   # NOT "rank" — ranks are relative to input set, meaningless for single compounds
-)
-```
-
-3. **Compute the consensus score** as a quality-weighted average of the sub-model probabilities:
-
-Quality weights come from `checkpoints/reports.csv` (w1–w7 columns).
-Use the mean of w1–w7 as the scalar weight for each sub-model.
-**Do not use w8** — w8 is rank-based (decision_cutoff_rank) and not meaningful for raw probabilities.
-
-```python
-import pandas as pd, numpy as np
-
-reports = pd.read_csv(os.path.join(checkpoints, "reports.csv"))
-W_COLS = ["w1","w2","w3","w4","w5","w6","w7"]
-weights = {
-    row["model_name"]: row[W_COLS].mean()
-    for _, row in reports.iterrows()
-}
-
-model_names = list(model_dir_dict.keys())
-probs = df[model_names].values          # shape (n, n_submodels)
-w = np.array([weights[m] for m in model_names])
-consensus = (probs * w).sum(axis=1) / w.sum()
-```
-
-4. **Output columns** in this order: `consensus_score`, then one column per sub-model.
-
-| column | description |
-|--------|-------------|
-| `consensus_score` | quality-weighted average of all sub-model probabilities |
-| `individual_inhibition` | probability from sub-model trained on individual inhibition assay (e.g. CHEMBL4296188 for abaumannii) |
-| `merged_mic_decoys` | probability from sub-model trained on merged MIC data with decoys |
-| `general_mic` | probability from sub-model trained on general MIC data |
-| `general_activity_decoys` | probability from sub-model trained on general % activity data |
-| `general_mic50` | probability from sub-model trained on general MIC50 data |
-
-(Drop any rows that don't apply to the pathogen.)
-
-### iii.3 — run_columns.csv
-
-Reflect the same set of columns produced by `main.py`. Template (adapt the pathogen name in the descriptions):
-
-```csv
-name,type,direction,description
-consensus_score,float,high,Quality-weighted consensus probability of antimicrobial activity against {full pathogen name} (0-1)
-individual_inhibition,float,high,Probability of antimicrobial activity from model trained on individual inhibition assay data
-merged_mic_decoys,float,high,Probability of antimicrobial activity from model trained on merged MIC measurements
-general_mic,float,high,Probability of antimicrobial activity from model trained on general MIC data
-general_activity_decoys,float,high,Probability of antimicrobial activity from model trained on general percentage inhibition data
-general_mic50,float,high,Probability of antimicrobial activity from model trained on general MIC50 data
-```
-
-### iii.4 — metadata.yml
-
-Fill in the template (edit the existing file in eosXXXX). Per-pathogen fields to adapt: `Identifier`, `Slug`, `Title`, `Description`, `Output Dimension`, `Interpretation`, `Tag`, `Target Organism`. Other fields are stable across pathogens.
-
-```yaml
-Identifier: eosXXXX
-Slug: antimicrobial-activity-{pathogen}
-Status: In progress
-Title: Prediction of antimicrobial activity against {Full pathogen name} from public bioactivity data
-Description: >
-  QSAR model scoring the likelihood of antimicrobial activity against {Full pathogen
-  name} from publicly available ChEMBL bioactivity data. Independent models are
-  trained on multiple bioactivity endpoints using LazyQSAR
-  (ersilia-os/chembl-antimicrobial-tasks, ersilia-os/chembl-antimicrobial-models),
-  returning one score per endpoint alongside a combined consensus score.
-Deployment:
-  - Local
-  - Online
-Source: Local, Online
-Source Type: Internal
-Task: Annotation
-Subtask: Activity prediction
-Input:
-  - Compound
-Input Dimension: 1
-Output:
-  - Score
-Output Dimension: <1 + number of sub-models>
-Output Consistency: Fixed
-Interpretation: >
-  Scores between 0 and 1. Higher values indicate higher predicted likelihood of
-  antimicrobial activity against {Full pathogen name}. The first column
-  (consensus_score) is a quality-weighted average across all sub-models.
-  The remaining columns correspond to individual sub-models trained on different
-  ChEMBL bioactivity endpoints.
-Tag:
-  - {Short tag, e.g. A.baumannii}
-  - {ESKAPE if applicable}
-  - Antimicrobial activity
-  - ChEMBL
-Biomedical Area:
-  - Infectious disease
-  - Antimicrobial resistance
-Target Organism: {Full pathogen name}
-Publication Type: Other
-Publication Year: 2025
-Publication: None
-Source Code: https://github.com/ersilia-os/chembl-antimicrobial-models
-License: GPL-3.0-or-later
-Contributor: arnaucoma24
-```
-
-### iii.5 — install.yml
-
-Dependencies needed (pin all versions; same across all pathogens):
-
-```yaml
-python: "3.10"
-commands:
-  - ["pip", "lazyqsar", "<version>"]
-  - ["pip", "numpy", "1.26.4"]
-  - ["pip", "pandas", "2.0.3"]
-  - ["pip", "onnxruntime", "<version>"]
-  - ["pip", "ersilia-pack-utils", "0.1.5"]
-```
-
-Check the exact lazyqsar and onnxruntime versions used in `chembl-antimicrobial-models`.
-
-### iii.6 — Example files
-
-`model/framework/examples/run_input.csv`: 3 SMILES, one per row, header = `smiles`.
-Use known active compounds against the pathogen from the training set if possible.
-
-`model/framework/examples/run_output.csv`: run `main.py` on `run_input.csv` to generate this.
-Must match exactly what the model produces.
+The reference filled model is at [eos21dr/](eos21dr/) — clone its layout and only edit the per-pathogen fields.
 
 ---
 
-## Step iv — Pull request
+## Key principles (must-know in every session)
 
-Once all files are in place and tested locally:
+These override the older guidance that may still be sitting in old plans, notebooks, or PR descriptions.
+
+1. **Checkpoints live in eosvc, not Git LFS.** Every fork ships an `access.json` with `{"checkpoints":"public","fit":"public"}` and a `.gitignore` that excludes `model/checkpoints/` and `model/framework/fit/`. Push files with `eosvc upload --path checkpoints/`; the Hub pulls them with `eosvc download --path checkpoints/` at install time. **Don't add `.gitattributes` LFS rules** — the Ersilia template ships a leftover one tracking `mock.txt`; delete both.
+
+2. **Two conda envs, never collapsed.**
+   - `cam-hub-inc` (Python 3.10) — coordinator work: eosvc CLI, filtering `reports.csv`, `gh`, helper scripts.
+   - `{eosXXXX}` (Python **3.12**) — built from the fork's `install.yml`, used only to run the model. Python 3.12 (not 3.10) because `chemprop==2.2.3` requires ≥3.11.
+
+3. **`install.yml` is the same for every pathogen** — only the filename's eosXXXX changes:
+   ```yaml
+   python: "3.12"
+   commands:
+       - ["pip", "lazyqsar[all]", "3.2.1"]
+       - ["pip", "ersilia-pack-utils", "0.1.5"]
+       - ["pip", "eosvc", "1.1.0"]
+   ```
+   Use `lazyqsar[all]`, **not `[descriptors]`** — the `classifier_predict` import chain transitively needs `xgboost` (which sits in the `[fit]` extra). Don't hand-pin `numpy`/`pandas`/`onnxruntime`; let lazyqsar's pyproject pin them.
+
+4. **`predict_type="rank"` always.** Despite the name, lazyqsar's "rank" output is a calibrated, batch-independent probability-like score (not a relative ranking). The training repo's `scripts/12` and `scripts/14` both consume it as a probability. In **user-facing docs** (run_columns descriptions, metadata Interpretation, README) call it a "probability" — never "rank" and never "relative to the input batch."
+
+5. **Consensus = W1–W7 + W8 + tanh transform.** Mirror `$PATH_TO_CAMM/scripts/14_consensus_scoring.py` exactly:
+   - W1–W7: model-level quality weights from `reports.csv`.
+   - W8: per-compound weight from `decision_cutoff_rank` (0 at/below cutoff, linear 0→1 above). **Don't skip W8** — older drafts of this file said to; that was wrong.
+   - Average all 8 weights with uniform weights, weight prob_ranks, then tanh-restore the IQR with `k(M) = 2·(1 + 1.156·(1 − exp(−M/6.47)))`.
+   - Output **one** consensus column: `consensus_score` (tanh-transformed). The pre-transform raw value is computed as an intermediate but **not** emitted.
+
+6. **Output Dimension = 1 + number of sub-models.** For abaumannii (5 sub-models) it's 6. Verify against `$PATH_TO_CAMM/output/results/09_models/{pathogen}/` for each new pathogen.
+
+7. **`run_columns.csv` descriptions are factual only.** State training data + cutoff + n. Never include interpretation language ("higher = more likely active") or batch-relativity caveats. See the golden example in the runbook.
+
+8. **`metadata.yml` rules.** Edit (don't overwrite) the template. Hard rules: Title ≥ 70 chars (single string), Description ≥ 200 chars (Miquel's wording — avoid "endpoint"/PubChem), Interpretation < 200 chars on one line. Single-value fields the template ships as comma-separated strings (Source Type, Task, Subtask, Output, Output Consistency, Publication Type) must be trimmed to a single value.
+
+9. **Controlled vocabularies.** Three metadata fields draw from closed lists in `ersilia-os/ersilia`:
+   - [`Tag`](https://github.com/ersilia-os/ersilia/blob/main/ersilia/hub/content/metadata/tag.txt)
+   - [`Biomedical Area`](https://github.com/ersilia-os/ersilia/blob/main/ersilia/hub/content/metadata/biomedical_area.txt) — note: there's no "Infectious disease"; use `Antimicrobial resistance`.
+   - [`Target Organism`](https://github.com/ersilia-os/ersilia/blob/main/ersilia/hub/content/metadata/target_organism.txt) — all 15 of our pathogens are in there.
+
+   If a pathogen / area / tag is missing, **append it to the source-of-truth file in `ersilia/` before committing** (open a PR if you can't push directly).
+
+10. **`run_output.csv` is machine-generated.** Never hand-edit it; Ersilia's CI byte-compares against a fresh `bash run.sh` invocation.
+
+11. **Repo layout for the coordinator.** This repo holds CLAUDE.md (you're reading it), docs/, scripts/, and per-pathogen forks cloned in-place as `eos*/` (gitignored). Each fork has its own git history pointing to `arnaucoma24/{eosXXXX}`. Don't commit anything inside an `eos*/` dir from the coordinator's git — work in the fork's git instead.
+
+---
+
+## Pull-request checklist (step iv)
+
+Before pushing the fork's PR, confirm:
+
+- `model/checkpoints/` is empty in git except for `.gitkeep` (the real ~600 MB lives in eosvc).
+- `access.json` + `.eosvc/access.lock.json` are committed.
+- `.gitattributes` is empty (no LFS rules).
+- `run_output.csv` is byte-identical to a fresh re-run.
+- Title/Description/Interpretation respect the length rules from §8.
+- All Tag/Biomedical Area/Target Organism entries are in the controlled vocab files.
+
+Then:
 
 ```bash
-cd /path/to/eosXXXX
-git add .
-git commit -m "Add {pathogen} antimicrobial activity model"
+cd eosXXXX
+git add access.json .eosvc/access.lock.json .gitignore .gitattributes \
+        install.yml metadata.yml \
+        model/framework/code/main.py \
+        model/framework/columns/run_columns.csv \
+        model/framework/examples/run_input.csv \
+        model/framework/examples/run_output.csv \
+        model/checkpoints/.gitkeep
+git commit -m "Add antimicrobial activity model for {Full pathogen name}"
 git push origin main
+
 gh pr create --repo ersilia-os/eosXXXX \
   --title "Add antimicrobial activity model for {Full pathogen name}" \
-  --body "..."
+  --body "Closes ersilia-os/ersilia#<issue-number>."
 ```
 
-The PR triggers automated tests (GitHub Actions in eosXXXX). Fix any failures before merging. Once merged and workflows are green on the merged commit, delete the `arnaucoma24/eosXXXX` fork (step v) and update the monitoring table.
-
----
-
-## Per-pathogen variability — what to change
-
-Across pathogens, only these things change:
-
-- `PATH_TO_CAMM/output/results/09_models/{pathogen}/` → checkpoints
-- `reports.csv` → filter `10_reports.csv` to that pathogen's rows
-- **Number of sub-models** (and therefore output columns and `model_dir_dict` keys) varies per pathogen
-- Slug, title, description, organism tag, target organism
-- Data sources mention (ChEMBL only vs ChEMBL + PubChem)
-- eos ID (assigned when the GitHub issue is approved)
-
-Issues for the remaining pathogens can be created programmatically via `gh issue create` using the refined template from the abaumannii issue (#1849).
+Once merged + workflows green, delete the personal fork (`gh repo delete arnaucoma24/eosXXXX --yes`) and update the [monitoring table](#monitoring-table).
