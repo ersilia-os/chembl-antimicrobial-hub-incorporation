@@ -267,13 +267,16 @@ For the 15 pathogens in this project all entries already exist in `target_organi
 
 Follow the Ersilia model-template guide (https://ersilia.gitbook.io/ersilia-book/ersilia-model-hub/model-contribution/model-template). Hard rules from there:
 
+- **`Status`** — `In Progress` (capital P, exactly as the spec says). The template often ships with `In progress` (lowercase) — fix to `In Progress` or the CI schema validator will flag it.
 - **`Title`** — single string, **min 70 chars**, self-descriptive.
-- **`Description`** — single string, **min 200 chars**, must cover model type, results, training dataset. Get the wording from Miquel Duran-Frigola's comment on the model-request issue — he tends to rewrite descriptions for clarity and consistency across the project. Avoid "endpoint" and skip irrelevant data sources (e.g. don't mention PubChem if the pathogen is ChEMBL-only).
+- **`Description`** — single string, **min 200 chars**, must cover model type, results, training dataset. Use the abaumannii wording as the template (see [eos21dr/metadata.yml](../eos21dr/metadata.yml)) and adapt the organism name. Avoid the word "endpoint"; skip irrelevant data sources (e.g. don't mention PubChem if the pathogen is ChEMBL-only).
 - **`Interpretation`** — **one brief sentence under 200 chars**. Example from eos3804: `Probability of growth inhibition of the bacteria A. Baumannii (threshold > 80%)`. Don't write paragraphs here — the Hub catalog renders it in a small cell.
-- **Single-value fields the template ships as comma-strings** — trim to one value: `Source Type: Internal`, `Task: Annotation`, `Subtask: Activity prediction`, `Output: Score`, `Output Consistency: Fixed`, `Publication Type: Other`.
+- **`Source`** — **single string**, one of `Local` or `Online`. The template ships with `Source: Local, Online` (comma-separated string) which **fails** the schema validator. Set to `Source: Local` (matches eos19mt and eos3804 convention). Do not confuse with `Deployment:`, which IS a list and CAN contain both `Local` and `Online`.
+- **Other single-value fields the template ships as comma-strings** — trim to one value: `Source Type: Internal`, `Task: Annotation`, `Subtask: Activity prediction`, `Output: Score`, `Output Consistency: Fixed`, `Publication Type: Other`.
 - **`Output Dimension`** — `1 + (number of sub-models for this pathogen)`. For abaumannii (5 sub-models) that's 6.
 - **`License`** — SPDX identifier. Use `GPL-3.0-or-later` (matches the training repo).
 - **`Publication Type`** — `Other` (no peer-reviewed paper for these models yet).
+- **`Publication`** — must be a URL **or omitted entirely**. The template ships with `Publication: None` which the schema validator treats as an empty field (FAILED). Since this model has no peer-reviewed paper yet, **delete the line**. (Omitting the key marks it as `NOT PRESENT`, which the validator tolerates as informational.)
 
 Reference: abaumannii's filled metadata is at [eos21dr/metadata.yml](../eos21dr/metadata.yml).
 
