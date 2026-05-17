@@ -23,7 +23,7 @@ Per-pathogen progress through the incorporation workflow. Update each column as 
 
 | pathogen | issue # | forked to arnaucoma24 | model prepared | PR merged | workflows passed | fork removed |
 |----------|---------|-----------------------|----------------|-----------|------------------|--------------|
-| abaumannii    | [#1849](https://github.com/ersilia-os/ersilia/issues/1849) | True  | True  | False | False | False |
+| abaumannii    | [#1849](https://github.com/ersilia-os/ersilia/issues/1849) | True  | True  | True  | True  | False |
 | efaecium      | —    | False | False | False | False | False |
 | saureus       | —    | False | False | False | False | False |
 | kpneumoniae   | —    | False | False | False | False | False |
@@ -75,11 +75,14 @@ The reference filled model is at [eos21dr/](eos21dr/) — clone its layout and o
 
 These override the older guidance that may still be sitting in old plans, notebooks, or PR descriptions.
 
-1. **Checkpoints live in eosvc, not Git LFS.** Every fork ships an `access.json` with `{"checkpoints":"public","fit":"public"}` and a `.gitignore` that excludes `model/checkpoints/` and `model/framework/fit/`. Push files with `eosvc upload --path checkpoints/`; the Hub pulls them with `eosvc download --path checkpoints/` at install time. **Don't add `.gitattributes` LFS rules** — the Ersilia template ships a leftover one tracking `mock.txt`; delete both.
+1. **Checkpoints are tracked twice: eosvc AND Git LFS.** Two independent paths because they serve different consumers:
+   - **eosvc** — every fork ships `access.json` with `{"checkpoints":"public","fit":"public"}`. Push files with `eosvc upload --path checkpoints/`; the Hub pulls them with `eosvc download --path checkpoints/` at install time.
+   - **Git LFS** — `.gitattributes` LFS-tracks `*.onnx`, `*.pt`, `*.h5`, and the one big `cddd_encoder_smiles.csv`. The model-PR CI workflow (`actions/checkout` with `lfs: true`) needs these in the cloned tree because `ersilia -v test ... --from_dir` does not invoke eosvc.
+   - The Ersilia template ships a stray `mock.txt` + matching LFS rule — delete those, then add the four real LFS rules. `.gitignore` should NOT exclude `model/checkpoints/` (LFS needs to see those files). `fit/` stays ignored.
 
 2. **Two conda envs, never collapsed.**
    - `cam-hub-inc` (Python 3.10) — coordinator work: eosvc CLI, filtering `reports.csv`, `gh`, helper scripts.
-   - `{eosXXXX}` (Python **3.12**) — built from the fork's `install.yml`, used only to run the model. Python 3.12 (not 3.10) because `chemprop==2.2.3` requires ≥3.11.
+   - `cam-models-runtime` (Python **3.12**) — shared model runtime, built from the `install.yml` template once and reused across every pathogen. Python 3.12 (not 3.10) because `chemprop==2.2.3` requires ≥3.11.
 
 3. **`install.yml` is the same for every pathogen** — only the filename's eosXXXX changes:
    ```yaml
@@ -128,9 +131,9 @@ These override the older guidance that may still be sitting in old plans, notebo
 
 Before pushing the fork's PR, confirm:
 
-- `model/checkpoints/` is empty in git except for `.gitkeep` (the real ~600 MB lives in eosvc).
+- `model/checkpoints/` contains the real ~600 MB tracked via Git LFS (`.gitattributes` has the four LFS rules).
 - `access.json` + `.eosvc/access.lock.json` are committed.
-- `.gitattributes` is empty (no LFS rules).
+- `.gitattributes` LFS-tracks `*.onnx`, `*.pt`, `*.h5`, and the one big `cddd_encoder_smiles.csv`.
 - `run_output.csv` is byte-identical to a fresh re-run.
 - Title/Description/Interpretation respect the length rules from §8.
 - All Tag/Biomedical Area/Target Organism entries are in the controlled vocab files.
@@ -139,19 +142,20 @@ Then:
 
 ```bash
 cd eosXXXX
+git lfs install                       # one-time per machine
 git add access.json .eosvc/access.lock.json .gitignore .gitattributes \
         install.yml metadata.yml \
         model/framework/code/main.py \
         model/framework/columns/run_columns.csv \
         model/framework/examples/run_input.csv \
         model/framework/examples/run_output.csv \
-        model/checkpoints/.gitkeep
+        model/checkpoints/             # ~600 MB; LFS-tracked via .gitattributes
 git commit -m "Add antimicrobial activity model for {Full pathogen name}"
 git push origin main
 
 gh pr create --repo ersilia-os/eosXXXX \
   --title "Add antimicrobial activity model for {Full pathogen name}" \
-  --body "Closes ersilia-os/ersilia#<issue-number>."
+  --body "Related to ersilia-os/ersilia#<issue-number>."
 ```
 
 Once merged + workflows green, delete the personal fork (`gh repo delete arnaucoma24/eosXXXX --yes`) and update the [monitoring table](#monitoring-table).

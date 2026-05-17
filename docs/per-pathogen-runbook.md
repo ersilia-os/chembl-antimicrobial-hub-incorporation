@@ -27,7 +27,7 @@ We use two clearly separated envs. **Never collapse them.**
 | Env | Python | Purpose | Created from | When to use |
 |-----|--------|---------|--------------|-------------|
 | `cam-hub-inc` | 3.10 | Coordinator: eosvc CLI, filtering reports.csv, gh, helper scripts | manual (`conda create … python=3.10`) | for tasks driven from the coordinator repo |
-| `{eosXXXX}` (e.g. `eos21dr`) | **3.12** | Model runtime: lazyqsar[all], descriptor stack, eosvc, ersilia-pack-utils | the fork's `install.yml` | only to run `bash run.sh` against the fork |
+| `cam-models-runtime` | **3.12** | Shared model runtime: lazyqsar[all], descriptor stack, eosvc, ersilia-pack-utils. Built once from `install.yml`, reused across all 15 forks | the fork's `install.yml` (built once, then reused) | only to run `bash run.sh` against any fork |
 
 Why Python 3.12 in the model env: `lazyqsar[all]==3.2.1` transitively requires `chemprop==2.2.3`, which requires Python ≥3.11. Python 3.10 worked on paper for lazyqsar's own metadata but breaks on chemprop. Always pin `python: "3.12"` in `install.yml`.
 
@@ -47,18 +47,24 @@ Why `lazyqsar[all]` (not `[descriptors]`): lazyqsar's `classifier_predict` impor
    cd {eosXXXX}
    ```
 
-4. The Ersilia template ships with a `mock.txt` Git LFS test file and an LFS rule in `.gitattributes`. We are using **eosvc, not Git LFS**, so remove both:
+4. The Ersilia template ships with a placeholder `mock.txt` + a matching `.gitattributes` LFS rule. We delete those and replace `.gitattributes` with our real LFS rules (see step 1b):
 
    ```bash
    git rm mock.txt
-   git rm .gitattributes      # empty .gitattributes; LFS no longer used
+   # .gitattributes will be rewritten in step 1b with the real LFS patterns
    ```
 
 5. Update the coordinator's [monitoring table](../CLAUDE.md#monitoring-table): set "forked to arnaucoma24" → True, paste the issue link.
 
 ---
 
-## Step 1 — Checkpoints (eosvc-tracked, not git-tracked)
+## Step 1 — Checkpoints (tracked twice: eosvc AND Git LFS)
+
+Two independent storage paths because they serve different consumers:
+- **eosvc** → `s3://eosvc-models-public/{eosXXXX}/` → consumed by the Hub at install time.
+- **Git LFS** → GitHub LFS storage on the fork → consumed by the model-PR CI workflow, which clones the fork and runs `ersilia -v test … --from_dir` (no eosvc).
+
+Both are populated from the same local files. Some bytes are duplicated (S3 + GitHub LFS) — that's accepted.
 
 ### 1a. `access.json`
 
@@ -73,22 +79,32 @@ Create `{eosXXXX}/access.json`:
 
 This declares the fork as an **eosvc model repo** (vs. a standard data repo). eosvc routes uploads/downloads to bucket `eosvc-models-public/{eosXXXX}/`.
 
-### 1b. `.gitignore`
+### 1b. `.gitattributes` (LFS rules)
 
-Add at the top of `{eosXXXX}/.gitignore`:
+Replace the empty/template-default `.gitattributes` with four lines that LFS-track every large file under `model/checkpoints/`:
 
 ```
-# Managed by Ersilia Version Control (eosvc) — synced to s3://eosvc-models-public/{eosXXXX}/
-model/checkpoints/
-model/framework/fit/
-# but keep the empty-dir markers so the structure exists after a clean clone
-!model/checkpoints/.gitkeep
+*.onnx filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.h5 filter=lfs diff=lfs merge=lfs -text
+model/checkpoints/featurizer_weights_home/.lazyqsar/cddd_encoder_smiles.csv filter=lfs diff=lfs merge=lfs -text
+```
+
+The three global extensions cover every weight file in the repo (`.onnx`, `.pt`, `.h5`). The one explicit path covers the 139 MB `cddd_encoder_smiles.csv` — we can't blanket-LFS all `.csv` because `run_input.csv` and `run_output.csv` must stay in regular git.
+
+### 1c. `.gitignore`
+
+`model/checkpoints/` is **not** gitignored — the LFS-tracked weights need to be visible to git so the model-PR CI can clone them. Only `model/framework/fit/` stays ignored (we don't ship fit/ contents):
+
+```
+# model/checkpoints/ is intentionally NOT ignored — tracked via Git LFS
+# (see .gitattributes). eosvc still uploads the same files to S3
+# in parallel; the Hub uses eosvc at install time, CI uses LFS.
+model/framework/fit/*
 !model/framework/fit/.gitkeep
 ```
 
-The two `!...gitkeep` exceptions are important — they ensure a fresh `git clone` still has the directories that `main.py` and `run.sh` expect to exist.
-
-### 1c. Populate `model/checkpoints/`
+### 1d. Populate `model/checkpoints/`
 
 Final layout we want (~600-700 MB total per pathogen):
 
@@ -143,7 +159,7 @@ print(df[df.pathogen=='$PATHOGEN'][['model_name','decision_cutoff_rank']])
 
 Verify before continuing: `du -sh $CKPT/` should be on the order of 600-700 MB; `ls $CKPT/models/` should list every sub-model directory that exists for the pathogen in `09_models/`.
 
-### 1d. Upload checkpoints to S3 (eosvc)
+### 1e. Upload checkpoints to S3 (eosvc)
 
 This step requires AWS credentials with write access to `s3://eosvc-models-public/`. From the fork directory:
 
@@ -310,7 +326,7 @@ Pick 3 with diverse structures. SMILES of 30-80 chars keep the example file read
 **Never hand-write this.** It must be byte-identical to what `bash run.sh` produces — Ersilia's CI compares them. Generate it:
 
 ```bash
-conda activate {eosXXXX}    # the model env, Python 3.12
+conda activate cam-models-runtime    # shared model env, Python 3.12
 cd {eosXXXX}
 
 # Materialize checkpoints if you're testing on a fresh machine
@@ -336,25 +352,26 @@ Two harmless warnings you can ignore:
 Inside `{eosXXXX}/`:
 
 ```bash
+git lfs install                       # one-time per machine
 git add access.json .eosvc/access.lock.json .gitignore .gitattributes \
         install.yml metadata.yml \
         model/framework/code/main.py \
         model/framework/columns/run_columns.csv \
         model/framework/examples/run_input.csv \
         model/framework/examples/run_output.csv \
-        model/checkpoints/.gitkeep         # checkpoint files themselves are gitignored
+        model/checkpoints/              # ~600 MB; LFS-tracked via .gitattributes
 git commit -m "Add antimicrobial activity model for {Full pathogen name}"
-git push origin main
+git push origin main                    # uploads ~620 MB to GitHub LFS storage
 
 gh pr create --repo ersilia-os/{eosXXXX} \
   --title "Add antimicrobial activity model for {Full pathogen name}" \
-  --body "Closes ersilia-os/ersilia#<issue-number>. Built from ersilia-os/chembl-antimicrobial-models. See $PATH_TO_CAMM."
+  --body "Related to ersilia-os/ersilia#<issue-number>. Built from ersilia-os/chembl-antimicrobial-models."
 ```
 
 Verify in the PR:
-- `model/checkpoints/` directory is empty except for `.gitkeep` (real checkpoints come via eosvc at install time).
-- `access.json` is present.
-- `.eosvc/access.lock.json` is present.
+- `model/checkpoints/` is populated and the large files (`.onnx`, `.pt`, `.h5`, `cddd_encoder_smiles.csv`) show as LFS objects (you can check with `git lfs ls-files`).
+- `.gitattributes` contains the four LFS rules.
+- `access.json` and `.eosvc/access.lock.json` are present.
 - `run_output.csv` matches the regeneration exactly.
 
 Update the coordinator's [monitoring table](../CLAUDE.md#monitoring-table): "model prepared" → True; once Ersilia CI passes and merges, "PR merged" → True and "workflows passed" → True.
@@ -394,10 +411,10 @@ When you scaffold a new fork from the Ersilia template you only need to change/c
 
 | Path | Action |
 |------|--------|
-| `mock.txt` | **delete** (LFS test file from the template) |
-| `.gitattributes` | **empty** (was tracking mock.txt with LFS — we use eosvc, not LFS) |
+| `mock.txt` | **delete** (placeholder from the template) |
+| `.gitattributes` | **rewrite** with four real LFS rules (see step 1b) |
 | `access.json` | **create** with `{"checkpoints":"public","fit":"public"}` |
-| `.gitignore` | **prepend** eosvc-managed `model/checkpoints/` + `model/framework/fit/` (with `!*.gitkeep` exceptions) |
+| `.gitignore` | **drop** `model/checkpoints/*` (LFS-tracked now); keep `model/framework/fit/*` ignore |
 | `.eosvc/access.lock.json` | **auto-created** by `eosvc upload`; commit it |
 | `install.yml` | **rewrite** to lazyqsar[all]==3.2.1 + ersilia-pack-utils + eosvc, python 3.12 |
 | `metadata.yml` | **edit each field** (template ships placeholders) |
