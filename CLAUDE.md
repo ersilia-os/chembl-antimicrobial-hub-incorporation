@@ -103,12 +103,12 @@ These override the older guidance that may still be sitting in old plans, notebo
 
 7. **`run_columns.csv` descriptions are factual only.** State training data + cutoff + n. Never include interpretation language ("higher = more likely active") or batch-relativity caveats. See the golden example in the runbook.
 
-8. **`metadata.yml` rules.** Edit (don't overwrite) the template. Hard rules — confirmed by CI schema validator:
-   - **`Status: In Progress`** (capital P; template ships lowercase `in progress` which fails).
-   - **Title ≥ 70 chars** (single string), **Description ≥ 200 chars** (avoid "endpoint" / PubChem), **Interpretation < 200 chars** on one line.
+8. **`metadata.yml` rules.** Edit (don't overwrite) the template. Hard rules — confirmed by CI schema validator (the gitbook docs are not always accurate; trust the validator + the controlled-vocab files):
+   - **`Status: In progress`** (lowercase p; the gitbook says "In Progress" but that's wrong — the validator checks against [`status.txt`](https://github.com/ersilia-os/ersilia/blob/master/ersilia/hub/content/metadata/status.txt), which contains `Test / In maintenance / In progress / Ready / Archived`).
+   - **Title ≥ 70 chars** (single string), **Description ≥ 200 chars** (avoid "endpoint" / PubChem unless the pathogen actually uses PubChem), **Interpretation < 200 chars** on one line.
    - **`Source: Local`** — single string, NOT a comma-joined list. The template ships `Source: Local, Online` which **fails**. Note: `Deployment:` IS a YAML list and can hold both — only `Source:` is restricted.
    - Other single-value fields the template ships as comma-strings (`Source Type`, `Task`, `Subtask`, `Output Consistency`, `Publication Type`) must be trimmed to **one** value. `Output:` is a YAML list.
-   - **`Publication:`** must be a URL or **omitted entirely**. Template ships `Publication: None` which fails — delete the line if there's no paper.
+   - **`Publication:`** must be **present** AND a **valid URL**. The validator has a bug — `Publication: None` triggers EmptyField, and omitting the key entirely triggers a KeyError. If there's no peer-reviewed paper, use the Source Code repo URL as a placeholder (e.g. `Publication: https://github.com/ersilia-os/chembl-antimicrobial-models`). See [ersilia/publish/test/services/checks.py:_check_model_publication](https://github.com/ersilia-os/ersilia/blob/master/ersilia/publish/test/services/checks.py).
    - Auto-generated keys (DockerHub, S3, Docker Architecture, Image Size, Computational Performance, Release, Contribution Date, …) should NOT be present in our YAML — Ersilia adds them at publish time. They show as `NOT PRESENT` in CI but that's informational only.
 
 9. **Controlled vocabularies.** Three metadata fields draw from closed lists in `ersilia-os/ersilia`:
