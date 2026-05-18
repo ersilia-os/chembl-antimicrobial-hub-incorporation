@@ -16,7 +16,8 @@ What this script does (idempotent where it can be):
      pathogen-filtered reports.csv at model/checkpoints/reports.csv.
   5. Pick 3 SMILES from the training positives (30-80 chars) and write
      model/framework/examples/run_input.csv.
-  6. Write install.yml (constant for every pathogen).
+  6. Write install.yml with a per-pathogen `--only` list (subset of
+     chemeleon/clamp/cddd derived from the sub-models that will be copied).
   7. Generate DRAFT versions of main.py, run_columns.csv, and
      metadata.yml. These three files need Claude+human review before
      running 03_test_pathogen.py.
@@ -44,9 +45,38 @@ PATH_TO_CAMM = os.environ.get(
 
 # ---- Constants identical for every pathogen ----
 
-INSTALL_YML = """python: "3.12"
+# Descriptors lazyqsar can pre-download. morgan + rdkit don't need a download
+# (rdkit computes them on the fly), so they're omitted.
+_DOWNLOADABLE_DESCRIPTORS = ("chemeleon", "clamp", "cddd")
+
+
+def _descriptors_needed(pathogen):
+    """Scan `$PATH_TO_CAMM/output/results/09_models/{pathogen}/{sub_model}/`
+    and return the subset of {chemeleon, clamp, cddd} that appears in any
+    sub-model directory. This drives the --only list passed to
+    `lazyqsar setup --descriptors`.
+    """
+    src = os.path.join(PATH_TO_CAMM, "output", "results", "09_models", pathogen)
+    needed = set()
+    if os.path.isdir(src):
+        for sub in os.listdir(src):
+            sub_path = os.path.join(src, sub)
+            if not os.path.isdir(sub_path):
+                continue
+            for d in os.listdir(sub_path):
+                if d in _DOWNLOADABLE_DESCRIPTORS:
+                    needed.add(d)
+    # Preserve canonical ordering from _DOWNLOADABLE_DESCRIPTORS.
+    return [d for d in _DOWNLOADABLE_DESCRIPTORS if d in needed]
+
+
+def _install_yml(descriptors_needed):
+    only = ",".join(descriptors_needed)
+    return f"""python: "3.12"
 commands:
-    - ["pip", "lazyqsar[all]", "3.2.1"]
+    - ["pip", "torch", "2.6.0", "--index-url", "https://download.pytorch.org/whl/cpu"]
+    - ["pip", "lazyqsar[descriptors] @ git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"]
+    - "lazyqsar setup --descriptors --only {only} --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
     - ["pip", "ersilia-pack-utils", "0.1.5"]
     - ["pip", "eosvc", "1.1.0"]
 """
@@ -55,7 +85,6 @@ GITATTRIBUTES = """\
 *.onnx filter=lfs diff=lfs merge=lfs -text
 *.pt filter=lfs diff=lfs merge=lfs -text
 *.h5 filter=lfs diff=lfs merge=lfs -text
-model/checkpoints/featurizer_weights_home/.lazyqsar/cddd_encoder_smiles.csv filter=lfs diff=lfs merge=lfs -text
 """
 
 ACCESS_JSON = """\
@@ -71,6 +100,11 @@ GITIGNORE_HEADER = """\
 # parallel; the Hub uses eosvc at install time, CI uses LFS.
 model/framework/fit/*
 !model/framework/fit/.gitkeep
+
+# Descriptor weights are downloaded at install time by `lazyqsar setup --descriptors`
+# (see install.yml). Don't commit the downloaded artifacts.
+model/checkpoints/featurizer_weights_home/*
+!model/checkpoints/featurizer_weights_home/.gitkeep
 """
 
 MAIN_PY = '''\
@@ -198,7 +232,13 @@ def _fork_and_clone(eosXXXX, dest):
 
 
 def _populate_checkpoints(pathogen, fork):
-    """Copy sub-models + featurizer weights + filtered reports.csv. Return sub-model order from reports.csv."""
+    """Copy sub-models + filtered reports.csv. Return sub-model order from reports.csv.
+
+    Descriptor weights (chemeleon + clamp) are NOT copied here — `lazyqsar setup
+    --descriptors --only chemeleon,clamp --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar`
+    runs at install time (see install.yml) and pulls them from upstream. We only touch
+    a `.gitkeep` so the directory survives a clean clone.
+    """
     import pandas as pd
     ckpt = os.path.join(fork, "model", "checkpoints")
     os.makedirs(os.path.join(ckpt, "models"), exist_ok=True)
@@ -213,15 +253,10 @@ def _populate_checkpoints(pathogen, fork):
         if os.path.isdir(src) and not os.path.exists(dst):
             shutil.copytree(src, dst)
 
-    # Featurizer weights
-    src_feat = os.path.join(PATH_TO_CAMM, "output", "results", "08_weights", ".lazyqsar")
-    dst_feat = os.path.join(ckpt, "featurizer_weights_home", ".lazyqsar")
-    os.makedirs(dst_feat, exist_ok=True)
-    for f in os.listdir(src_feat):
-        src = os.path.join(src_feat, f)
-        dst = os.path.join(dst_feat, f)
-        if not os.path.exists(dst):
-            shutil.copy(src, dst)
+    # Featurizer dir placeholder (.gitkeep keeps the empty dir tracked).
+    fw_dir = os.path.join(ckpt, "featurizer_weights_home")
+    os.makedirs(fw_dir, exist_ok=True)
+    open(os.path.join(fw_dir, ".gitkeep"), "a").close()
 
     # reports.csv → pathogen subset, in 10_reports.csv order
     reports_all = pd.read_csv(os.path.join(PATH_TO_CAMM, "output", "results", "10_reports.csv"))
@@ -423,9 +458,11 @@ def main():
     fit_keep = os.path.join(fork, "model", "framework", "fit", ".gitkeep")
     os.makedirs(os.path.dirname(fit_keep), exist_ok=True)
     open(fit_keep, "a").close()
-    # install.yml
+    # install.yml — `--only` list is per-pathogen, derived from sub-model featurizers
+    descriptors_needed = _descriptors_needed(pathogen)
+    print(f"      Descriptors needed for {pathogen}: {descriptors_needed}")
     with open(os.path.join(fork, "install.yml"), "w") as f:
-        f.write(INSTALL_YML)
+        f.write(_install_yml(descriptors_needed))
 
     print(f"[3/7] Populate model/checkpoints/")
     model_names = _populate_checkpoints(pathogen, fork)

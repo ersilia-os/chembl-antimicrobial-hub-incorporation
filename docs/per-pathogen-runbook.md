@@ -27,11 +27,18 @@ We use two clearly separated envs. **Never collapse them.**
 | Env | Python | Purpose | Created from | When to use |
 |-----|--------|---------|--------------|-------------|
 | `cam-hub-inc` | 3.10 | Coordinator: eosvc CLI, filtering reports.csv, gh, helper scripts | manual (`conda create … python=3.10`) | for tasks driven from the coordinator repo |
-| `cam-models-runtime` | **3.12** | Shared model runtime: lazyqsar[all], descriptor stack, eosvc, ersilia-pack-utils. Built once from `install.yml`, reused across all 15 forks | the fork's `install.yml` (built once, then reused) | only to run `bash run.sh` against any fork |
+| `cam-models-runtime` | **3.12** | Shared model runtime: CPU torch + lazyqsar[descriptors]@42ab866 + descriptor weights (chemeleon/clamp/cddd subset) + eosvc + ersilia-pack-utils. Built once from one fork's `install.yml`, reused across all 15 forks | one fork's `install.yml` (built once, then reused; `03_test_pathogen.py` runs `lazyqsar setup --only … --target-dir <fork>/…` per-pathogen on demand) | only to run `bash run.sh` against any fork |
 
-Why Python 3.12 in the model env: `lazyqsar[all]==3.2.1` transitively requires `chemprop==2.2.3`, which requires Python ≥3.11. Python 3.10 worked on paper for lazyqsar's own metadata but breaks on chemprop. Always pin `python: "3.12"` in `install.yml`.
+Why Python 3.12 in the model env: `lazyqsar[descriptors]` transitively requires `chemprop==2.2.3`, which requires Python ≥3.11. Always pin `python: "3.12"` in `install.yml`.
 
-Why `lazyqsar[all]` (not `[descriptors]`): lazyqsar's `classifier_predict` import chain hard-imports `xgboost` (and `sklearn`, `joblib`) at module load time — all in the `[fit]` extra. `[descriptors]` alone fails with `ModuleNotFoundError: xgboost`. `[all] = [descriptors,fit]` is the correct pin for inference, even though `[fit]` is nominally "training-only." Realistic savings from dropping `[fit]` are < 1% of the env (~50 MB on a 7 GB env). Tracked upstream at [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31); switch to `[descriptors]` once they ship lazy-imports. Don't refactor `main.py` to per-sub-model loading just for this — it loses the shared-descriptor speedup (~5× slower for large batches).
+Why **CPU torch first**: the CUDA torch wheel pulls ~3 GB of NVIDIA libraries we don't need. Install CPU torch from `https://download.pytorch.org/whl/cpu` BEFORE `lazyqsar[descriptors]`, which then sees `torch>=2.6.0` already satisfied and skips its own pull. Final env is ~2.7 GB (vs ~7 GB with CUDA torch).
+
+Why `lazyqsar[descriptors]@<commit>` (not `[all]`, not `[descriptors]==3.2.1`): commit `42ab866` is the post-3.2.1 main HEAD that includes:
+- [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31) — lazy imports of `xgboost`/`sklearn`/`joblib`, so `[descriptors]` alone is now sufficient for inference (was `ModuleNotFoundError: xgboost` before).
+- [lazy-qsar#33](https://github.com/ersilia-os/lazy-qsar/issues/33) — `lazyqsar setup --descriptors` gains `--only` and `--target-dir` flags, plus `download_clamp()`.
+- SMILES validation refactor (5× speedup on validation for large batches).
+
+Switch to a tagged release once one cuts (likely `v3.2.2`).
 
 ---
 
@@ -81,32 +88,40 @@ This declares the fork as an **eosvc model repo** (vs. a standard data repo). eo
 
 ### 1b. `.gitattributes` (LFS rules)
 
-Replace the empty/template-default `.gitattributes` with four lines that LFS-track every large file under `model/checkpoints/`:
+Replace the empty/template-default `.gitattributes` with three lines that LFS-track every per-sub-model weight file under `model/checkpoints/models/`:
 
 ```
 *.onnx filter=lfs diff=lfs merge=lfs -text
 *.pt filter=lfs diff=lfs merge=lfs -text
 *.h5 filter=lfs diff=lfs merge=lfs -text
-model/checkpoints/featurizer_weights_home/.lazyqsar/cddd_encoder_smiles.csv filter=lfs diff=lfs merge=lfs -text
 ```
 
-The three global extensions cover every weight file in the repo (`.onnx`, `.pt`, `.h5`). The one explicit path covers the 139 MB `cddd_encoder_smiles.csv` — we can't blanket-LFS all `.csv` because `run_input.csv` and `run_output.csv` must stay in regular git.
+These globs cover every sub-model weight file (the ONNX classifiers, applicability-domain models, etc.). Descriptor weights (~200-615 MB per pathogen depending on which of chemeleon/clamp/cddd are needed) are NOT tracked here — they're downloaded at install time by `lazyqsar setup` (see Step 4). The `featurizer_weights_home/` dir is gitignored except for a `.gitkeep`.
 
 ### 1c. `.gitignore`
 
-`model/checkpoints/` is **not** gitignored — the LFS-tracked weights need to be visible to git so the model-PR CI can clone them. Only `model/framework/fit/` stays ignored (we don't ship fit/ contents):
+Two ignores:
+1. `model/framework/fit/` — we don't ship training pipeline contents.
+2. `model/checkpoints/featurizer_weights_home/` — descriptor weights are downloaded at install time, not committed.
 
 ```
-# model/checkpoints/ is intentionally NOT ignored — tracked via Git LFS
-# (see .gitattributes). eosvc still uploads the same files to S3
-# in parallel; the Hub uses eosvc at install time, CI uses LFS.
+# model/checkpoints/models/ is intentionally NOT ignored — sub-model
+# weights are tracked via Git LFS (see .gitattributes). eosvc uploads
+# the same files to S3 in parallel; Hub uses eosvc at install time,
+# CI uses LFS.
 model/framework/fit/*
 !model/framework/fit/.gitkeep
+
+# Descriptor weights are downloaded at install time by `lazyqsar setup
+# --descriptors --only … --target-dir …` (see install.yml). Don't commit
+# the downloaded artifacts.
+model/checkpoints/featurizer_weights_home/*
+!model/checkpoints/featurizer_weights_home/.gitkeep
 ```
 
 ### 1d. Populate `model/checkpoints/`
 
-Final layout we want (~600-700 MB total per pathogen):
+Final layout we want (~50 MB total per pathogen — sub-models only; the descriptor weights are downloaded at install time, not bundled):
 
 ```
 {eosXXXX}/model/checkpoints/
@@ -118,18 +133,15 @@ Final layout we want (~600-700 MB total per pathogen):
 │   ├── general_activity_decoys/
 │   ├── general_mic50/
 │   └── …                                 ← the set varies per pathogen
-├── featurizer_weights_home/.lazyqsar/   ← featurizer weights bundle
-│   ├── chemeleon_mp.pt                   (~34 MB)
-│   ├── clamp_encoder.onnx                (~167 MB)
-│   ├── cddd_encoder.onnx                 (~101 MB)
-│   ├── cddd_encoder_fpsim.h5             (~174 MB)
-│   └── cddd_encoder_smiles.csv           (~139 MB)
+├── featurizer_weights_home/.gitkeep     ← placeholder so the dir survives a clean clone;
+│                                          contents are downloaded by `lazyqsar setup`
+│                                          at install time (see Step 4)
 └── reports.csv                           ← {pathogen} rows from $PATH_TO_CAMM/output/results/10_reports.csv
 ```
 
-Why `models/` as a sub-folder: keeps the per-pathogen QSAR models cleanly separated from the (much larger, pathogen-agnostic) featurizer weights and the reports.csv.
+Why `models/` as a sub-folder: keeps the per-pathogen QSAR models cleanly separated from the descriptor weights and the reports.csv.
 
-Why `featurizer_weights_home/.lazyqsar/`: lazyqsar locates its featurizer weights at `$HOME/.lazyqsar/`. In `main.py` we set `os.environ["HOME"] = .../checkpoints/featurizer_weights_home` so this folder satisfies that lookup without polluting the user's real home.
+Why `featurizer_weights_home/.lazyqsar/` (populated at install time, not now): lazyqsar locates its featurizer weights at `$HOME/.lazyqsar/`. In `main.py` we set `os.environ["HOME"] = .../checkpoints/featurizer_weights_home` so this folder satisfies that lookup. The descriptor weights themselves (~200-615 MB depending on pathogen) are NOT bundled in the repo — gitignored + not in eosvc/S3. `lazyqsar setup --descriptors --only … --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` (from `install.yml`) downloads them at Hub install time. Locally, `03_test_pathogen.py` runs the same command on demand if files are missing.
 
 Commands (assuming `cam-hub-inc` is active):
 
@@ -143,10 +155,9 @@ for m in $(ls $PATH_TO_CAMM/output/results/09_models/$PATHOGEN/); do
   cp -r $PATH_TO_CAMM/output/results/09_models/$PATHOGEN/$m $CKPT/models/
 done
 
-# 2. Featurizer weights (same files for every pathogen)
-mkdir -p $CKPT/featurizer_weights_home/.lazyqsar
-cp $PATH_TO_CAMM/output/results/08_weights/.lazyqsar/* \
-   $CKPT/featurizer_weights_home/.lazyqsar/
+# 2. Featurizer weights placeholder
+mkdir -p $CKPT/featurizer_weights_home
+touch $CKPT/featurizer_weights_home/.gitkeep
 
 # 3. reports.csv — pathogen subset only
 python3 -c "
@@ -241,25 +252,32 @@ For abaumannii's complete file see [eos21dr/model/framework/columns/run_columns.
 
 ## Step 4 — `install.yml`
 
-`{eosXXXX}/install.yml`. Same shape for every pathogen — only the eosXXXX in the filename changes:
+`{eosXXXX}/install.yml`. The `--only` list of descriptors is **per-pathogen** — `02_init_pathogen.py` scans the sub-model dirs and derives it from which featurizer subdirectories (`chemeleon/`, `clamp/`, `cddd/`) actually appear. abaumannii's install.yml:
 
 ```yaml
 python: "3.12"
 commands:
-    - ["pip", "lazyqsar[all]", "3.2.1"]
+    - ["pip", "torch", "2.6.0", "--index-url", "https://download.pytorch.org/whl/cpu"]
+    - ["pip", "lazyqsar[descriptors] @ git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"]
+    - "lazyqsar setup --descriptors --only chemeleon,clamp --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
     - ["pip", "ersilia-pack-utils", "0.1.5"]
     - ["pip", "eosvc", "1.1.0"]
 ```
 
-What each pin does:
-- `lazyqsar[all]==3.2.1` — the QSAR engine plus all transitive deps the import chain actually needs (xgboost, scikit-learn, skl2onnx, onnxconverter-common, onnxmltools, joblib via `[fit]`; rdkit, chemeleon, chemprop, torch, FPSim2 via `[descriptors]`). Transitively pins `numpy==2.1.3`, `pandas==2.3.0`, `onnxruntime==1.20.1`.
-- `ersilia-pack-utils==0.1.5` — Ersilia Hub I/O conventions (we don't use it directly in `main.py` for this model, but the Hub harness expects it installed).
-- `eosvc==1.1.0` — needed by the Hub at install time to pull checkpoints from S3.
+For pathogens that also use cddd (e.g. mtuberculosis), the third line becomes `--only chemeleon,clamp,cddd`.
+
+Order matters:
+1. **CPU torch FIRST** so the subsequent `lazyqsar[descriptors]` install sees `torch>=2.6.0` already satisfied and won't pull the default PyPI CUDA wheel (~3 GB of NVIDIA libs we don't need). Final env is ~2.7 GB instead of ~7 GB.
+2. `lazyqsar[descriptors] @ git+…@42ab866` — pinned to the post-3.2.1 commit on `main` that ships lazy imports for `xgboost`/`sklearn`/`joblib` (so `[descriptors]` alone now works for inference, fixes [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31)), plus the `--only` / `--target-dir` setup flags + `download_clamp()` (fixes [lazy-qsar#33](https://github.com/ersilia-os/lazy-qsar/issues/33)), plus a SMILES-validation refactor (5× speedup on validation for large batches). Switch to a tagged release once one cuts (likely `v3.2.2`).
+3. `lazyqsar setup --descriptors --only … --target-dir …` materialises just the descriptor weights this pathogen needs (~34 MB chemeleon + ~167 MB clamp + optional ~415 MB cddd) into the fork's checkpoint tree at install time. The weights are NOT bundled in the repo — gitignored + not in eosvc/S3.
+4. `ersilia-pack-utils==0.1.5` — Ersilia Hub I/O conventions.
+5. `eosvc==1.1.0` — needed by the Hub at install time to pull checkpoints from S3.
 
 Important gotchas (don't repeat these):
 - Don't use `python: "3.10"` — chemprop 2.2.3 requires ≥ 3.11.
-- Don't use `lazyqsar[descriptors]` alone — `classifier_predict` hard-imports `xgboost`/`sklearn`/`joblib` at module load and fails. Tracked at [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31).
-- Don't bother pinning numpy/pandas/onnxruntime/rdkit/torch explicitly — let lazyqsar's pyproject pin them transitively. Hand-pinning fights the resolver and was the source of stale `numpy 1.26.4 / pandas 2.0.3` guidance in the old plan.
+- Don't drop the `--index-url https://download.pytorch.org/whl/cpu` flag — the default PyPI torch wheel pulls ~3 GB of CUDA libraries.
+- Don't bundle the descriptor weights in `model/checkpoints/featurizer_weights_home/.lazyqsar/` — they're meant to be downloaded by `lazyqsar setup` at install time. The directory is gitignored except for `.gitkeep`.
+- Don't bother pinning numpy/pandas/onnxruntime/rdkit explicitly — let lazyqsar's pyproject pin them transitively.
 
 ---
 
@@ -414,12 +432,12 @@ When you scaffold a new fork from the Ersilia template you only need to change/c
 | `mock.txt` | **delete** (placeholder from the template) |
 | `.gitattributes` | **rewrite** with four real LFS rules (see step 1b) |
 | `access.json` | **create** with `{"checkpoints":"public","fit":"public"}` |
-| `.gitignore` | **drop** `model/checkpoints/*` (LFS-tracked now); keep `model/framework/fit/*` ignore |
+| `.gitignore` | **drop** `model/checkpoints/*` (sub-model files LFS-tracked); add `model/checkpoints/featurizer_weights_home/*` with `.gitkeep` exception (descriptor weights downloaded at install time); keep `model/framework/fit/*` ignore |
 | `.eosvc/access.lock.json` | **auto-created** by `eosvc upload`; commit it |
-| `install.yml` | **rewrite** to lazyqsar[all]==3.2.1 + ersilia-pack-utils + eosvc, python 3.12 |
+| `install.yml` | **rewrite** to CPU torch + lazyqsar[descriptors]@42ab866 + `lazyqsar setup --only <per-pathogen-list> --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` + ersilia-pack-utils + eosvc, python 3.12 |
 | `metadata.yml` | **edit each field** (template ships placeholders) |
 | `model/checkpoints/models/<sub_model>/…` | **populate** from `$PATH_TO_CAMM/output/results/09_models/{pathogen}/` |
-| `model/checkpoints/featurizer_weights_home/.lazyqsar/*` | **populate** from `$PATH_TO_CAMM/output/results/08_weights/.lazyqsar/` |
+| `model/checkpoints/featurizer_weights_home/.gitkeep` | **touch** placeholder; descriptor weights are downloaded by `lazyqsar setup` at install time, not bundled |
 | `model/checkpoints/reports.csv` | **filter** `$PATH_TO_CAMM/output/results/10_reports.csv` to this pathogen's rows |
 | `model/framework/code/main.py` | **rewrite** (template placeholder computes MolWt) |
 | `model/framework/columns/run_columns.csv` | **fill** with `1 + n_submodels` rows following the factual-only style |

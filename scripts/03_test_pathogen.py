@@ -26,6 +26,25 @@ REGISTRY    = os.path.join(REPO_ROOT, "data", "00_registry.csv")
 CONDA_SH    = "/home/acomajuncosa/programs/miniconda3/etc/profile.d/conda.sh"
 RUNTIME_ENV = "cam-models-runtime"
 
+# Descriptors lazyqsar can pre-download. morgan + rdkit are computed on the fly.
+_DOWNLOADABLE_DESCRIPTORS = ("chemeleon", "clamp", "cddd")
+
+
+def _descriptors_needed(fork):
+    """Scan `<fork>/model/checkpoints/models/{sub_model}/` and return the
+    subset of {chemeleon, clamp, cddd} that appears in any sub-model dir."""
+    src = os.path.join(fork, "model", "checkpoints", "models")
+    needed = set()
+    if os.path.isdir(src):
+        for sub in os.listdir(src):
+            sub_path = os.path.join(src, sub)
+            if not os.path.isdir(sub_path):
+                continue
+            for d in os.listdir(sub_path):
+                if d in _DOWNLOADABLE_DESCRIPTORS:
+                    needed.add(d)
+    return [d for d in _DOWNLOADABLE_DESCRIPTORS if d in needed]
+
 
 def _run_in_runtime_env(cmd, cwd):
     """bash -c 'source conda.sh && conda activate <env> && <cmd>'."""
@@ -63,6 +82,26 @@ def main():
     in_csv   = "model/framework/examples/run_input.csv"
     out_csv  = "model/framework/examples/run_output.csv"
     cols_csv = "model/framework/columns/run_columns.csv"
+
+    # Descriptor weights are gitignored and downloaded at install time on the Hub
+    # (see install.yml). Locally we reuse one shared cam-models-runtime env across
+    # all 15 pathogens, so install.yml's setup line only ran for the first fork.
+    # Materialise the per-pathogen subset into THIS fork's tree on demand.
+    needed = _descriptors_needed(fork)
+    sentinel = os.path.join(fork, "model/checkpoints/featurizer_weights_home/.lazyqsar",
+                            f"{needed[0]}_mp.pt" if needed and needed[0] == "chemeleon"
+                            else f"{needed[0]}_encoder.onnx")
+    if needed and not os.path.exists(sentinel):
+        print(f"[0/4] descriptor weights missing — running lazyqsar setup --only {','.join(needed)}...")
+        res = _run_in_runtime_env(
+            f"lazyqsar setup --descriptors --only {','.join(needed)} "
+            f"--target-dir model/checkpoints/featurizer_weights_home/.lazyqsar",
+            cwd=fork,
+        )
+        if res.returncode != 0:
+            sys.stdout.write(res.stdout)
+            sys.stderr.write(res.stderr)
+            sys.exit("FAIL: lazyqsar setup failed.")
 
     print(f"[1/4] bash run.sh -> {out_csv}")
     res = _run_in_runtime_env(
