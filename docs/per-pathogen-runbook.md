@@ -31,7 +31,7 @@ We use two clearly separated envs. **Never collapse them.**
 
 Why Python 3.12 in the model env: `lazyqsar[all]==3.2.1` transitively requires `chemprop==2.2.3`, which requires Python ≥3.11. Python 3.10 worked on paper for lazyqsar's own metadata but breaks on chemprop. Always pin `python: "3.12"` in `install.yml`.
 
-Why `lazyqsar[all]` (not `[descriptors]`): lazyqsar's `classifier_predict` import chain pulls `xgboost` at module load time, and `xgboost` lives in the `[fit]` extra. `[descriptors]` alone fails with `ModuleNotFoundError: xgboost`. `[all] = [descriptors,fit]` is the correct pin for inference, even though `[fit]` is nominally "training-only."
+Why `lazyqsar[all]` (not `[descriptors]`): lazyqsar's `classifier_predict` import chain hard-imports `xgboost` (and `sklearn`, `joblib`) at module load time — all in the `[fit]` extra. `[descriptors]` alone fails with `ModuleNotFoundError: xgboost`. `[all] = [descriptors,fit]` is the correct pin for inference, even though `[fit]` is nominally "training-only." Realistic savings from dropping `[fit]` are < 1% of the env (~50 MB on a 7 GB env). Tracked upstream at [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31); switch to `[descriptors]` once they ship lazy-imports. Don't refactor `main.py` to per-sub-model loading just for this — it loses the shared-descriptor speedup (~5× slower for large batches).
 
 ---
 
@@ -258,7 +258,7 @@ What each pin does:
 
 Important gotchas (don't repeat these):
 - Don't use `python: "3.10"` — chemprop 2.2.3 requires ≥ 3.11.
-- Don't use `lazyqsar[descriptors]` alone — xgboost is missing and the import fails.
+- Don't use `lazyqsar[descriptors]` alone — `classifier_predict` hard-imports `xgboost`/`sklearn`/`joblib` at module load and fails. Tracked at [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31).
 - Don't bother pinning numpy/pandas/onnxruntime/rdkit/torch explicitly — let lazyqsar's pyproject pin them transitively. Hand-pinning fights the resolver and was the source of stale `numpy 1.26.4 / pandas 2.0.3` guidance in the old plan.
 
 ---

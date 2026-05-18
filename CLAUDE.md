@@ -92,7 +92,7 @@ These override the older guidance that may still be sitting in old plans, notebo
        - ["pip", "ersilia-pack-utils", "0.1.5"]
        - ["pip", "eosvc", "1.1.0"]
    ```
-   Use `lazyqsar[all]`, **not `[descriptors]`** — the `classifier_predict` import chain transitively needs `xgboost` (which sits in the `[fit]` extra). Don't hand-pin `numpy`/`pandas`/`onnxruntime`; let lazyqsar's pyproject pin them.
+   Use `lazyqsar[all]`, **not `[descriptors]`** — `classifier_predict`'s import chain hard-imports `xgboost`/`sklearn`/`joblib` at module load (all in the `[fit]` extra). Realistic env-size savings from dropping `[fit]` are < 1% on a 7 GB env, and dropping it requires either refactoring `main.py` to per-sub-model loading (5× slower inference) or waiting for the upstream lazy-import fix in [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31). Don't hand-pin `numpy`/`pandas`/`onnxruntime`; let lazyqsar's pyproject pin them.
 
 4. **`predict_type="rank"` always.** Despite the name, lazyqsar's "rank" output is a calibrated, batch-independent probability-like score (not a relative ranking). The training repo's `scripts/12` and `scripts/14` both consume it as a probability. In **user-facing docs** (run_columns descriptions, metadata Interpretation, README) call it a "probability" — never "rank" and never "relative to the input batch."
 
