@@ -257,17 +257,63 @@ def _draft_main_py(fork, model_names):
         f.write(MAIN_PY.format(model_names_block=block))
 
 
+def _consensus_threshold(cutoffs, w_quality):
+    """Apply main.py's consensus formula to the per-sub-model decision_cutoff_rank
+    values, treating them as the prob_ranks of a hypothetical compound that sits
+    exactly on each sub-model's boundary. W8 = 0 at the boundary.
+
+    Mirrors the math in MAIN_PY's consensus block. Returns the post-tanh value.
+    """
+    import numpy as np
+    cutoffs   = np.asarray(cutoffs,   dtype=float)
+    w_quality = np.asarray(w_quality, dtype=float)
+    M = len(cutoffs)
+    prob_ranks = cutoffs.reshape(1, -1)
+    c  = np.clip(cutoffs[None, :], 0.0, 1.0 - 1e-9)
+    w8 = np.where(prob_ranks <= c, 0.0, (prob_ranks - c) / (1.0 - c))
+    n_w = w_quality.shape[1] + 1  # w1..w7 + w8 = 8
+    w_all = np.empty((1, M, n_w))
+    w_all[:, :, :w_quality.shape[1]] = w_quality
+    w_all[:, :,  w_quality.shape[1]] = w8
+    w_eff = np.average(w_all, axis=-1, weights=np.ones(n_w))
+    raw = (prob_ranks * w_eff).sum(axis=1) / w_eff.sum(axis=1)
+    A, T = 1.156, 6.47
+    k = 2.0 * (1.0 + A * (1.0 - np.exp(-M / T)))
+    return float(0.5 + 0.5 * np.tanh(k * (raw - 0.5)) / np.tanh(k / 2))
+
+
 def _draft_run_columns(fork, model_names):
-    """One row per sub-model with a placeholder description; Claude rewrites these per memory feedback_run_columns_style."""
+    """One row per sub-model with a placeholder description; Claude rewrites
+    the assay-description part per memory feedback_run_columns_style. The
+    `Recommended threshold: X.XXX.` suffix is auto-filled here and should be
+    kept by Claude as-is.
+    """
+    import pandas as pd
     path = os.path.join(fork, "model", "framework", "columns", "run_columns.csv")
     os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    reports = pd.read_csv(os.path.join(fork, "model", "checkpoints", "reports.csv")).set_index("model_name")
+    W_COLS  = ["w1", "w2", "w3", "w4", "w5", "w6", "w7"]
+    cutoffs   = [float(reports.loc[m, "decision_cutoff_rank"]) for m in model_names]
+    w_quality = [reports.loc[m, W_COLS].values for m in model_names]
+    cons_thresh = _consensus_threshold(cutoffs, w_quality)
+
     with open(path, "w") as f:
         f.write("name,type,direction,description\n")
-        f.write(f"consensus_score,float,high,Tanh-transformed quality-weighted consensus probability across the {len(model_names)} sub-models.\n")
-        for m in model_names:
-            # NEEDS CLAUDE REVIEW: rewrite per `feedback_run_columns_style` memory
-            # ("Probability from sub-model trained on … (cutoff X; n=Y)").
-            f.write(f"{m},float,high,DRAFT — Probability from sub-model {m}. Rewrite per 07_datasets_metadata.csv.\n")
+        f.write(
+            f"consensus_score,float,high,Tanh-transformed quality-weighted consensus "
+            f"probability across the {len(model_names)} sub-models. "
+            f"Recommended threshold: {cons_thresh:.3f}.\n"
+        )
+        for m, ct in zip(model_names, cutoffs):
+            # NEEDS CLAUDE REVIEW: rewrite the leading sentence per memory
+            # `feedback_run_columns_style` ("Probability from sub-model trained on
+            # ... (cutoff X; n=Y)"). Keep the trailing `Recommended threshold` sentence.
+            f.write(
+                f"{m},float,high,DRAFT — Probability from sub-model {m}. "
+                f"Rewrite per 07_datasets_metadata.csv. "
+                f"Recommended threshold: {ct:.3f}.\n"
+            )
 
 
 def _draft_metadata(fork, row, eosXXXX, model_names):
