@@ -23,7 +23,7 @@ Per-pathogen progress through the incorporation workflow. Update each column as 
 
 | pathogen | issue # | forked to arnaucoma24 | model prepared | PR merged | workflows passed | fork removed |
 |----------|---------|-----------------------|----------------|-----------|------------------|--------------|
-| abaumannii    | [#1849](https://github.com/ersilia-os/ersilia/issues/1849) | True  | True  | True  | True  | False |
+| abaumannii    | [#1849](https://github.com/ersilia-os/ersilia/issues/1849) | True  | True  | True  | True  | True  |
 | efaecium      | —    | False | False | False | False | False |
 | saureus       | —    | False | False | False | False | False |
 | kpneumoniae   | —    | False | False | False | False | False |
