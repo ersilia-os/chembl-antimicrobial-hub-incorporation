@@ -309,6 +309,9 @@ def _draft_run_columns(fork, model_names):
             # NEEDS CLAUDE REVIEW: rewrite the leading sentence per memory
             # `feedback_run_columns_style` ("Probability from sub-model trained on
             # ... (cutoff X; n=Y)"). Keep the trailing `Recommended threshold` sentence.
+            # CRITICAL: no commas inside the description text — the field is
+            # unquoted in the CSV; a comma breaks pandas parsing. Use ';' or
+            # rephrase if a comma feels natural.
             f.write(
                 f"{m},float,high,DRAFT — Probability from sub-model {m}. "
                 f"Rewrite per 07_datasets_metadata.csv. "
