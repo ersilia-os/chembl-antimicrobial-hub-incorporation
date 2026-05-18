@@ -85,6 +85,17 @@ checkpoints = os.path.abspath(os.path.join(root, "..", "..", "checkpoints"))
 input_file  = sys.argv[1]
 output_file = sys.argv[2]
 
+# Isolate matplotlib's config/cache dir BEFORE lazyqsar import. Without
+# this, matplotlib (transitively imported by lazyqsar's descriptor stack)
+# writes its font cache to $HOME/.cache/matplotlib — and we set HOME below
+# to point at our bundled featurizer weights, which would pollute
+# model/checkpoints/featurizer_weights_home/.cache/ on every run.
+# See https://github.com/ersilia-os/lazy-qsar/issues (TODO).
+import atexit, shutil, tempfile
+_mpl_dir = tempfile.mkdtemp(prefix="mpl_")
+os.environ["MPLCONFIGDIR"] = _mpl_dir
+atexit.register(lambda: shutil.rmtree(_mpl_dir, ignore_errors=True))
+
 # LazyQSAR locates featurizer weights via $HOME/.lazyqsar/ — point it at our bundled copy.
 os.environ["HOME"] = os.path.join(checkpoints, "featurizer_weights_home")
 
