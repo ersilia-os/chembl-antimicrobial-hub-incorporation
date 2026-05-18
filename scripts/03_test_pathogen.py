@@ -22,7 +22,7 @@ import subprocess
 import sys
 
 REPO_ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REGISTRY    = os.path.join(REPO_ROOT, "scripts", "00_registry.csv")
+REGISTRY    = os.path.join(REPO_ROOT, "data", "00_registry.csv")
 CONDA_SH    = "/home/acomajuncosa/programs/miniconda3/etc/profile.d/conda.sh"
 RUNTIME_ENV = "cam-models-runtime"
 

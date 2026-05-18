@@ -1,12 +1,12 @@
 # scripts/
 
-Helper scripts for incorporating one antimicrobial-activity QSAR model per pathogen. All `.py` scripts take a single `--pathogen <code>` flag (matching a row in [00_registry.csv](00_registry.csv)). See [../docs/per-pathogen-runbook.md](../docs/per-pathogen-runbook.md) for the manual procedure and the full context.
+Helper scripts for incorporating one antimicrobial-activity QSAR model per pathogen. All `.py` scripts take a single `--pathogen <code>` flag (matching a row in [../data/00_registry.csv](../data/00_registry.csv)). See [../docs/per-pathogen-runbook.md](../docs/per-pathogen-runbook.md) for the manual procedure and the full context.
 
 Run each script from the coordinator-repo root with the `cam-hub-inc` env active.
 
 ## Files
 
-### 00_registry.csv
+### ../data/00_registry.csv
 Source of truth: 15 rows, one per pathogen. Pre-filled at session start with `pathogen`, `full_name`, `short_tag`, `eskape`, `data_sources`, `slug`, `title`, `description`. `issue_number` is filled by `01_open_issue.py`; `eosXXXX` is filled by `02_init_pathogen.py` after detecting the bot comment on the issue.
 
 ### 01_open_issue.py

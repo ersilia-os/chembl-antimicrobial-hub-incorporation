@@ -17,7 +17,7 @@ import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REGISTRY  = os.path.join(REPO_ROOT, "scripts", "00_registry.csv")
+REGISTRY  = os.path.join(REPO_ROOT, "data", "00_registry.csv")
 
 # The Ersilia issue-template uses "### Section" markdown blocks; mirror that
 # so the issue is recognised as a "new-model" request.

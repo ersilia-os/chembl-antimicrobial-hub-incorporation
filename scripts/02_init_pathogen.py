@@ -36,7 +36,7 @@ import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REGISTRY  = os.path.join(REPO_ROOT, "scripts", "00_registry.csv")
+REGISTRY  = os.path.join(REPO_ROOT, "data", "00_registry.csv")
 PATH_TO_CAMM = os.environ.get(
     "PATH_TO_CAMM",
     "/aloy/home/acomajuncosa/Ersilia/chembl-antimicrobial-models",
