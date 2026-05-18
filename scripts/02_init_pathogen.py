@@ -90,7 +90,7 @@ output_file = sys.argv[2]
 # writes its font cache to $HOME/.cache/matplotlib — and we set HOME below
 # to point at our bundled featurizer weights, which would pollute
 # model/checkpoints/featurizer_weights_home/.cache/ on every run.
-# See https://github.com/ersilia-os/lazy-qsar/issues (TODO).
+# Upstream tracking issue: https://github.com/ersilia-os/lazy-qsar/issues/30.
 import atexit, shutil, tempfile
 _mpl_dir = tempfile.mkdtemp(prefix="mpl_")
 os.environ["MPLCONFIGDIR"] = _mpl_dir
