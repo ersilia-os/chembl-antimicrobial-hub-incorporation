@@ -26,8 +26,8 @@ We use two clearly separated envs. **Never collapse them.**
 
 | Env | Python | Purpose | Created from | When to use |
 |-----|--------|---------|--------------|-------------|
-| `cam-hub-inc` | 3.10 | Coordinator: eosvc CLI, filtering reports.csv, gh, helper scripts | manual (`conda create … python=3.10`) | for tasks driven from the coordinator repo |
-| `cam-models-runtime` | **3.12** | Shared model runtime: CPU torch + lazyqsar[descriptors]@42ab866 + descriptor weights (chemeleon/clamp/cddd subset) + eosvc + ersilia-pack-utils. Built once from one fork's `install.yml`, reused across all 15 forks | one fork's `install.yml` (built once, then reused; `03_test_pathogen.py` runs `lazyqsar setup --only … --target-dir <fork>/…` per-pathogen on demand) | only to run `bash run.sh` against any fork |
+| `cam-hub-inc` | 3.10 | Coordinator: filtering reports.csv, gh, helper scripts | manual (`conda create … python=3.10`) | for tasks driven from the coordinator repo |
+| `cam-models-runtime` | **3.12** | Shared model runtime: CPU torch + lazyqsar[descriptors]@42ab866 + descriptor weights (chemeleon/clamp/cddd subset) + ersilia-pack-utils. Built once from one fork's `install.yml`, reused across all 15 forks | one fork's `install.yml` (built once, then reused; `03_test_pathogen.py` runs `lazyqsar setup --only … --target-dir <fork>/…` per-pathogen on demand) | only to run `bash run.sh` against any fork |
 
 Why Python 3.12 in the model env: `lazyqsar[descriptors]` transitively requires `chemprop==2.2.3`, which requires Python ≥3.11. Always pin `python: "3.12"` in `install.yml`.
 
@@ -54,61 +54,30 @@ Switch to a tagged release once one cuts (likely `v3.2.2`).
    cd {eosXXXX}
    ```
 
-4. The Ersilia template ships with a placeholder `mock.txt` + a matching `.gitattributes` LFS rule. We delete those and replace `.gitattributes` with our real LFS rules (see step 1b):
+4. The Ersilia template ships with a placeholder `mock.txt`. Delete it:
 
    ```bash
    git rm mock.txt
-   # .gitattributes will be rewritten in step 1b with the real LFS patterns
    ```
 
 5. Update the coordinator's [monitoring table](../CLAUDE.md#monitoring-table): set "forked to arnaucoma24" → True, paste the issue link.
 
 ---
 
-## Step 1 — Checkpoints (tracked twice: eosvc AND Git LFS)
+## Step 1 — Checkpoints (regular git)
 
-Two independent storage paths because they serve different consumers:
-- **eosvc** → `s3://eosvc-models-public/{eosXXXX}/` → consumed by the Hub at install time.
-- **Git LFS** → GitHub LFS storage on the fork → consumed by the model-PR CI workflow, which clones the fork and runs `ersilia -v test … --from_dir` (no eosvc).
+Everything under `model/checkpoints/` ships in plain git — no Git LFS, no eosvc. The sub-models are ~50 MB per pathogen, well within GitHub's recommended repo size. Descriptor weights (~200-615 MB) are NOT in the repo; they're downloaded at install time by `lazyqsar setup` (see Step 4).
 
-Both are populated from the same local files. Some bytes are duplicated (S3 + GitHub LFS) — that's accepted.
-
-### 1a. `access.json`
-
-Create `{eosXXXX}/access.json`:
-
-```json
-{
-  "checkpoints": "public",
-  "fit": "public"
-}
-```
-
-This declares the fork as an **eosvc model repo** (vs. a standard data repo). eosvc routes uploads/downloads to bucket `eosvc-models-public/{eosXXXX}/`.
-
-### 1b. `.gitattributes` (LFS rules)
-
-Replace the empty/template-default `.gitattributes` with three lines that LFS-track every per-sub-model weight file under `model/checkpoints/models/`:
-
-```
-*.onnx filter=lfs diff=lfs merge=lfs -text
-*.pt filter=lfs diff=lfs merge=lfs -text
-*.h5 filter=lfs diff=lfs merge=lfs -text
-```
-
-These globs cover every sub-model weight file (the ONNX classifiers, applicability-domain models, etc.). Descriptor weights (~200-615 MB per pathogen depending on which of chemeleon/clamp/cddd are needed) are NOT tracked here — they're downloaded at install time by `lazyqsar setup` (see Step 4). The `featurizer_weights_home/` dir is gitignored except for a `.gitkeep`.
-
-### 1c. `.gitignore`
+### 1a. `.gitignore`
 
 Two ignores:
 1. `model/framework/fit/` — we don't ship training pipeline contents.
 2. `model/checkpoints/featurizer_weights_home/` — descriptor weights are downloaded at install time, not committed.
 
 ```
-# model/checkpoints/models/ is intentionally NOT ignored — sub-model
-# weights are tracked via Git LFS (see .gitattributes). eosvc uploads
-# the same files to S3 in parallel; Hub uses eosvc at install time,
-# CI uses LFS.
+# Sub-models under model/checkpoints/models/ and model/checkpoints/reports.csv
+# ship via regular git. featurizer_weights_home/ is populated at install time
+# by `lazyqsar setup` (see install.yml) and is not committed.
 model/framework/fit/*
 !model/framework/fit/.gitkeep
 
@@ -119,9 +88,9 @@ model/checkpoints/featurizer_weights_home/*
 !model/checkpoints/featurizer_weights_home/.gitkeep
 ```
 
-### 1d. Populate `model/checkpoints/`
+### 1b. Populate `model/checkpoints/`
 
-Final layout we want (~50 MB total per pathogen — sub-models only; the descriptor weights are downloaded at install time, not bundled):
+Final layout we want (~50 MB total per pathogen — sub-models only; the descriptor weights are downloaded at install time, not bundled). Everything below ships in regular git:
 
 ```
 {eosXXXX}/model/checkpoints/
@@ -141,7 +110,7 @@ Final layout we want (~50 MB total per pathogen — sub-models only; the descrip
 
 Why `models/` as a sub-folder: keeps the per-pathogen QSAR models cleanly separated from the descriptor weights and the reports.csv.
 
-Why `featurizer_weights_home/.lazyqsar/` (populated at install time, not now): lazyqsar locates its featurizer weights at `$HOME/.lazyqsar/`. In `main.py` we set `os.environ["HOME"] = .../checkpoints/featurizer_weights_home` so this folder satisfies that lookup. The descriptor weights themselves (~200-615 MB depending on pathogen) are NOT bundled in the repo — gitignored + not in eosvc/S3. `lazyqsar setup --descriptors --only … --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` (from `install.yml`) downloads them at Hub install time. Locally, `03_test_pathogen.py` runs the same command on demand if files are missing.
+Why `featurizer_weights_home/.lazyqsar/` (populated at install time, not now): lazyqsar locates its featurizer weights at `$HOME/.lazyqsar/`. In `main.py` we set `os.environ["HOME"] = .../checkpoints/featurizer_weights_home` so this folder satisfies that lookup. The descriptor weights themselves (~200-615 MB depending on pathogen) are NOT bundled in the repo — gitignored. `lazyqsar setup --descriptors --only … --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` (from `install.yml`) downloads them at Hub install time. Locally, `03_test_pathogen.py` runs the same command on demand if files are missing.
 
 Commands (assuming `cam-hub-inc` is active):
 
@@ -168,26 +137,7 @@ print(df[df.pathogen=='$PATHOGEN'][['model_name','decision_cutoff_rank']])
 "
 ```
 
-Verify before continuing: `du -sh $CKPT/` should be on the order of 600-700 MB; `ls $CKPT/models/` should list every sub-model directory that exists for the pathogen in `09_models/`.
-
-### 1e. Upload checkpoints to S3 (eosvc)
-
-This step requires AWS credentials with write access to `s3://eosvc-models-public/`. From the fork directory:
-
-```bash
-# One-time per machine
-eosvc config \
-  --access-key-id "..." \
-  --secret-access-key "..." \
-  --region eu-central-2
-
-# Push the checkpoints
-eosvc upload --path checkpoints/
-```
-
-eosvc creates `.eosvc/access.lock.json` on first operation. **That lock file is git-tracked** — it freezes the public/private policy. Commit it along with `access.json`.
-
-After the upload, anyone (no AWS creds needed) can pull the checkpoints back with `eosvc download --path checkpoints/`. The Hub uses this same call at install time.
+Verify before continuing: `du -sh $CKPT/` should be on the order of ~50 MB (sub-models + reports.csv only — descriptor weights are downloaded at install time, not bundled); `ls $CKPT/models/` should list every sub-model directory that exists for the pathogen in `09_models/`.
 
 ---
 
@@ -261,7 +211,6 @@ commands:
     - ["pip", "lazyqsar[descriptors] @ git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"]
     - "lazyqsar setup --descriptors --only chemeleon,clamp --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
     - ["pip", "ersilia-pack-utils", "0.1.5"]
-    - ["pip", "eosvc", "1.1.0"]
 ```
 
 For pathogens that also use cddd (e.g. mtuberculosis), the third line becomes `--only chemeleon,clamp,cddd`.
@@ -269,9 +218,8 @@ For pathogens that also use cddd (e.g. mtuberculosis), the third line becomes `-
 Order matters:
 1. **CPU torch FIRST** so the subsequent `lazyqsar[descriptors]` install sees `torch>=2.6.0` already satisfied and won't pull the default PyPI CUDA wheel (~3 GB of NVIDIA libs we don't need). Final env is ~2.7 GB instead of ~7 GB.
 2. `lazyqsar[descriptors] @ git+…@42ab866` — pinned to the post-3.2.1 commit on `main` that ships lazy imports for `xgboost`/`sklearn`/`joblib` (so `[descriptors]` alone now works for inference, fixes [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31)), plus the `--only` / `--target-dir` setup flags + `download_clamp()` (fixes [lazy-qsar#33](https://github.com/ersilia-os/lazy-qsar/issues/33)), plus a SMILES-validation refactor (5× speedup on validation for large batches). Switch to a tagged release once one cuts (likely `v3.2.2`).
-3. `lazyqsar setup --descriptors --only … --target-dir …` materialises just the descriptor weights this pathogen needs (~34 MB chemeleon + ~167 MB clamp + optional ~415 MB cddd) into the fork's checkpoint tree at install time. The weights are NOT bundled in the repo — gitignored + not in eosvc/S3.
+3. `lazyqsar setup --descriptors --only … --target-dir …` materialises just the descriptor weights this pathogen needs (~34 MB chemeleon + ~167 MB clamp + optional ~415 MB cddd) into the fork's checkpoint tree at install time. The weights are NOT bundled in the repo — gitignored.
 4. `ersilia-pack-utils==0.1.5` — Ersilia Hub I/O conventions.
-5. `eosvc==1.1.0` — needed by the Hub at install time to pull checkpoints from S3.
 
 Important gotchas (don't repeat these):
 - Don't use `python: "3.10"` — chemprop 2.2.3 requires ≥ 3.11.
@@ -347,9 +295,6 @@ Pick 3 with diverse structures. SMILES of 30-80 chars keep the example file read
 conda activate cam-models-runtime    # shared model env, Python 3.12
 cd {eosXXXX}
 
-# Materialize checkpoints if you're testing on a fresh machine
-# eosvc download --path checkpoints/
-
 bash model/framework/run.sh model/framework \
      model/framework/examples/run_input.csv \
      model/framework/examples/run_output.csv
@@ -370,16 +315,14 @@ Two harmless warnings you can ignore:
 Inside `{eosXXXX}/`:
 
 ```bash
-git lfs install                       # one-time per machine
-git add access.json .eosvc/access.lock.json .gitignore .gitattributes \
-        install.yml metadata.yml \
+git add .gitignore install.yml metadata.yml \
         model/framework/code/main.py \
         model/framework/columns/run_columns.csv \
         model/framework/examples/run_input.csv \
         model/framework/examples/run_output.csv \
-        model/checkpoints/              # ~600 MB; LFS-tracked via .gitattributes
+        model/checkpoints/              # ~50 MB; regular git
 git commit -m "Add antimicrobial activity model for {Full pathogen name}"
-git push origin main                    # uploads ~620 MB to GitHub LFS storage
+git push origin main
 
 gh pr create --repo ersilia-os/{eosXXXX} \
   --title "Add antimicrobial activity model for {Full pathogen name}" \
@@ -387,9 +330,9 @@ gh pr create --repo ersilia-os/{eosXXXX} \
 ```
 
 Verify in the PR:
-- `model/checkpoints/` is populated and the large files (`.onnx`, `.pt`, `.h5`, `cddd_encoder_smiles.csv`) show as LFS objects (you can check with `git lfs ls-files`).
-- `.gitattributes` contains the four LFS rules.
-- `access.json` and `.eosvc/access.lock.json` are present.
+- `model/checkpoints/models/` is populated with the sub-models (plain git — no LFS pointers).
+- `model/checkpoints/reports.csv` is the pathogen-filtered subset.
+- `model/checkpoints/featurizer_weights_home/` contains only `.gitkeep`.
 - `run_output.csv` matches the regeneration exactly.
 
 Update the coordinator's [monitoring table](../CLAUDE.md#monitoring-table): "model prepared" → True; once Ersilia CI passes and merges, "PR merged" → True and "workflows passed" → True.
@@ -412,8 +355,8 @@ Then in the coordinator's monitoring table: "fork removed" → True.
 
 Before opening the PR:
 
-- [ ] `du -sh {eosXXXX}/model/checkpoints/` is ~600–700 MB (sub-models + featurizer weights + reports.csv).
-- [ ] `eosvc download --path checkpoints/` after wiping the local copy round-trips correctly.
+- [ ] `du -sh {eosXXXX}/model/checkpoints/` is ~50 MB (sub-models + reports.csv only — featurizer weights are downloaded at install time).
+- [ ] `git lfs ls-files` is empty (we don't use LFS).
 - [ ] `head -1 model/framework/examples/run_output.csv` column list matches `cut -d, -f1 model/framework/columns/run_columns.csv | tail -n+2 | tr '\n' ','`.
 - [ ] All values in `run_output.csv` are in `[0,1]`.
 - [ ] Regenerating `run_output.csv` from `run_input.csv` produces a byte-identical file (no diff).
@@ -430,11 +373,8 @@ When you scaffold a new fork from the Ersilia template you only need to change/c
 | Path | Action |
 |------|--------|
 | `mock.txt` | **delete** (placeholder from the template) |
-| `.gitattributes` | **rewrite** with four real LFS rules (see step 1b) |
-| `access.json` | **create** with `{"checkpoints":"public","fit":"public"}` |
-| `.gitignore` | **drop** `model/checkpoints/*` (sub-model files LFS-tracked); add `model/checkpoints/featurizer_weights_home/*` with `.gitkeep` exception (descriptor weights downloaded at install time); keep `model/framework/fit/*` ignore |
-| `.eosvc/access.lock.json` | **auto-created** by `eosvc upload`; commit it |
-| `install.yml` | **rewrite** to CPU torch + lazyqsar[descriptors]@42ab866 + `lazyqsar setup --only <per-pathogen-list> --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` + ersilia-pack-utils + eosvc, python 3.12 |
+| `.gitignore` | **drop** `model/checkpoints/*` (sub-models ship in regular git); add `model/checkpoints/featurizer_weights_home/*` with `.gitkeep` exception (descriptor weights downloaded at install time); keep `model/framework/fit/*` ignore |
+| `install.yml` | **rewrite** to CPU torch + lazyqsar[descriptors]@42ab866 + `lazyqsar setup --only <per-pathogen-list> --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` + ersilia-pack-utils, python 3.12 |
 | `metadata.yml` | **edit each field** (template ships placeholders) |
 | `model/checkpoints/models/<sub_model>/…` | **populate** from `$PATH_TO_CAMM/output/results/09_models/{pathogen}/` |
 | `model/checkpoints/featurizer_weights_home/.gitkeep` | **touch** placeholder; descriptor weights are downloaded by `lazyqsar setup` at install time, not bundled |
@@ -450,7 +390,5 @@ When you scaffold a new fork from the Ersilia template you only need to change/c
 
 - Consensus math (W1–W8 + tanh): [`$PATH_TO_CAMM/scripts/14_consensus_scoring.py`](../../chembl-antimicrobial-models/scripts/14_consensus_scoring.py), lines 55–97. Copy the structure into `main.py` verbatim.
 - LazyQSAR multi-model `predict` call pattern: [`$PATH_TO_CAMM/scripts/12_predict_drugbank.py`](../../chembl-antimicrobial-models/scripts/12_predict_drugbank.py), lines 31–37 (HOME env trick) and 124–134 (call signature).
-- Real eosvc-using Ersilia model: [`ersilia-os/eos9zw0`](https://github.com/ersilia-os/eos9zw0) (and `eos42ez`). Their `access.json` and `.eosvc/access.lock.json` are the canonical shapes.
-- eosvc CLI README: [`ersilia-os/eosvc`](https://github.com/ersilia-os/eosvc).
 - Ersilia metadata template guide: https://ersilia.gitbook.io/ersilia-book/ersilia-model-hub/model-contribution/model-template.
 - Reference filled model (abaumannii): [../eos21dr/](../eos21dr/) in this repo.

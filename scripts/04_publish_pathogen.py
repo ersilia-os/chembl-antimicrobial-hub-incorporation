@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""eosvc upload + git commit + git push + gh pr create.
+"""git commit + git push + gh pr create.
 
-Pushes the per-pathogen fork up both tracking paths:
-  - eosvc upload --path checkpoints/   (S3, for the Hub install path)
-  - git add + commit + push            (LFS, for the model-PR CI path)
-and opens the PR from arnaucoma24/{eosXXXX} into ersilia-os/{eosXXXX}.
+Commits the per-pathogen fork and opens the PR from arnaucoma24/{eosXXXX}
+into ersilia-os/{eosXXXX}. Everything (including model/checkpoints/) ships
+via regular git — no eosvc, no Git LFS.
 
 Usage:
     conda activate cam-hub-inc
@@ -20,9 +19,6 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REGISTRY  = os.path.join(REPO_ROOT, "data", "00_registry.csv")
 
-# These match the abaumannii PR (#1) commit + PR body exactly, modulo
-# per-pathogen substitutions. No "Closes" line — user closes the issue
-# manually after CI is green.
 PR_TITLE_TEMPLATE = "Add antimicrobial activity model for {full_name}"
 PR_BODY_TEMPLATE  = """\
 Related to ersilia-os/ersilia#{issue_number}.
@@ -31,19 +27,16 @@ Packages the {full_name} QSAR sub-models from ersilia-os/chembl-antimicrobial-mo
 
 - Output: 1 + N columns (`consensus_score` + per-sub-model probabilities).
 - Consensus: W1-W7 + W8 quality-weighted average + tanh IQR-restoring transform, mirroring `chembl-antimicrobial-models/scripts/14_consensus_scoring.py`.
-- Checkpoints tracked via both eosvc (`s3://eosvc-models-public/{eosXXXX}/`) and Git LFS.
-- Tested locally on Python 3.12 with `lazyqsar[all]==3.2.1`.
+- Sub-model checkpoints (~50 MB) ship in regular git; descriptor weights are downloaded at install time by `lazyqsar setup`.
+- Tested locally on Python 3.12 with `lazyqsar[descriptors]@42ab866`.
 
 Per-pathogen procedure documented at https://github.com/ersilia-os/chembl-antimicrobial-hub-incorporation/blob/main/docs/per-pathogen-runbook.md.
 """
 
-# Files we add to git for the commit. model/checkpoints/ is the
-# tree (LFS-tracked via .gitattributes — git add handles it transparently).
+# Files we add to git for the commit. model/checkpoints/ holds the
+# sub-models (~50 MB total) and reports.csv — both ship in regular git.
 FILES_TO_COMMIT = [
-    "access.json",
-    ".eosvc/access.lock.json",
     ".gitignore",
-    ".gitattributes",
     "install.yml",
     "metadata.yml",
     "model/framework/code/main.py",
@@ -71,21 +64,12 @@ def main():
     if not os.path.isdir(fork):
         sys.exit(f"Fork directory missing: {fork}")
 
-    # 1. eosvc upload (creates .eosvc/access.lock.json on first run)
-    print(f"[1/4] eosvc upload --path checkpoints/")
-    res = subprocess.run(["eosvc", "upload", "--path", "checkpoints/"], cwd=fork)
-    if res.returncode != 0:
-        sys.exit("FAIL: eosvc upload failed.")
-
-    # 2. git lfs install + git add (model/checkpoints/ contents are LFS-tracked via .gitattributes)
-    print(f"[2/4] git lfs install + git add")
-    subprocess.run(["git", "lfs", "install"], cwd=fork, check=True)
-    # Only add files that actually exist (e.g. .eosvc/access.lock.json may
-    # have been created in step 1; main.py is always present).
+    # 1. git add (everything under model/checkpoints/ is regular git)
+    print(f"[1/3] git add")
     existing = [p for p in FILES_TO_COMMIT if os.path.exists(os.path.join(fork, p))]
     subprocess.run(["git", "add", *existing], cwd=fork, check=True)
 
-    # 3. Commit. May report "nothing to commit" if previously committed; that's OK.
+    # 2. Commit. May report "nothing to commit" if previously committed; that's OK.
     commit_msg = f"Add antimicrobial activity model for {row['full_name']}"
     res = subprocess.run(
         ["git", "commit", "-m", commit_msg],
@@ -96,14 +80,13 @@ def main():
         sys.stderr.write(res.stderr)
         sys.exit("FAIL: git commit failed.")
 
-    # 4. Push (LFS objects pushed transparently). May take a few minutes.
-    print(f"[3/4] git push origin main  (LFS upload may take a few minutes)")
+    print(f"[2/3] git push origin main")
     res = subprocess.run(["git", "push", "origin", "main"], cwd=fork)
     if res.returncode != 0:
         sys.exit("FAIL: git push failed.")
 
-    # 5. PR
-    print(f"[4/4] gh pr create")
+    # 3. PR
+    print(f"[3/3] gh pr create")
     title = PR_TITLE_TEMPLATE.format(full_name=row["full_name"])
     body  = PR_BODY_TEMPLATE.format(
         issue_number=row["issue_number"],

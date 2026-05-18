@@ -75,13 +75,13 @@ The reference filled model is at [eos21dr/](eos21dr/) — clone its layout and o
 
 These override the older guidance that may still be sitting in old plans, notebooks, or PR descriptions.
 
-1. **Sub-model checkpoints tracked twice; descriptor weights downloaded at install time.** Three storage paths, each serving different consumers:
-   - **Sub-models** (`model/checkpoints/models/{sub}/…`, ~50 MB per pathogen) → tracked in **eosvc** (push with `eosvc upload --path checkpoints/`, Hub pulls at install time) AND **Git LFS** (3-line `.gitattributes`: `*.onnx`, `*.pt`, `*.h5`). LFS is needed because the model-PR CI workflow does `actions/checkout` with `lfs: true` and runs `ersilia -v test ... --from_dir` — which does not invoke eosvc.
-   - **Descriptor weights** (`model/checkpoints/featurizer_weights_home/.lazyqsar/{chemeleon_mp.pt, clamp_encoder.onnx, cddd_encoder.onnx, …}`, ~200-615 MB per pathogen depending on which featurizers are used) → NOT in the repo. Gitignored except for `.gitkeep`, NOT uploaded to eosvc. Downloaded at install time by `lazyqsar setup --descriptors --only <list> --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` (see Key Principle #3). On dev machines, `scripts/03_test_pathogen.py` runs the same setup command on demand if files are missing.
-   - The Ersilia template ships a stray `mock.txt` + matching LFS rule — delete those, then add the three real LFS rules. `.gitignore` should NOT exclude `model/checkpoints/models/` but MUST exclude `model/checkpoints/featurizer_weights_home/*` (with `.gitkeep` exception). `fit/` stays ignored.
+1. **Checkpoints ship via regular git; descriptor weights downloaded at install time.** Two storage paths, each serving different consumers:
+   - **Sub-models** (`model/checkpoints/models/{sub}/…`, ~50 MB per pathogen) and `model/checkpoints/reports.csv` → committed to the fork's regular git tree. No eosvc, no Git LFS — both were retired (see [chembl-antimicrobial-hub-incorporation@$THIS_COMMIT]) once descriptor weights moved to install-time download and the in-repo checkpoints fit comfortably in plain git. The Ersilia template ships a stray `mock.txt` — delete it.
+   - **Descriptor weights** (`model/checkpoints/featurizer_weights_home/.lazyqsar/{chemeleon_mp.pt, clamp_encoder.onnx, cddd_encoder.onnx, …}`, ~200-615 MB per pathogen depending on which featurizers are used) → NOT in the repo. Gitignored except for `.gitkeep`. Downloaded at install time by `lazyqsar setup --descriptors --only <list> --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` (see Key Principle #3). On dev machines, `scripts/03_test_pathogen.py` runs the same setup command on demand if files are missing.
+   - `.gitignore` should NOT exclude `model/checkpoints/models/` but MUST exclude `model/checkpoints/featurizer_weights_home/*` (with `.gitkeep` exception). `fit/` stays ignored.
 
 2. **Two conda envs, never collapsed.**
-   - `cam-hub-inc` (Python 3.10) — coordinator work: eosvc CLI, filtering `reports.csv`, `gh`, helper scripts.
+   - `cam-hub-inc` (Python 3.10) — coordinator work: filtering `reports.csv`, `gh`, helper scripts.
    - `cam-models-runtime` (Python **3.12**) — shared model runtime, built from the `install.yml` template once and reused across every pathogen. Python 3.12 (not 3.10) because `chemprop==2.2.3` requires ≥3.11.
 
 3. **`install.yml` is per-pathogen** — same skeleton, but the `--only` list of descriptors varies. The template `scripts/02_init_pathogen.py` derives it from which featurizers each pathogen's sub-models actually use (subset of `chemeleon,clamp,cddd`). abaumannii's `install.yml` looks like:
@@ -92,13 +92,12 @@ These override the older guidance that may still be sitting in old plans, notebo
        - ["pip", "lazyqsar[descriptors] @ git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"]
        - "lazyqsar setup --descriptors --only chemeleon,clamp --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
        - ["pip", "ersilia-pack-utils", "0.1.5"]
-       - ["pip", "eosvc", "1.1.0"]
    ```
    Why each line, in order:
    - **CPU torch FIRST** so the subsequent `lazyqsar[descriptors]` install sees `torch>=2.6.0` already satisfied and won't pull the default PyPI CUDA wheel (~3 GB of NVIDIA libs we don't need).
    - **`lazyqsar[descriptors] @ git+…@42ab866`** — pinned to the post-3.2.1 commit that ships lazy imports of `xgboost`/`sklearn`/`joblib` (fixes [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31)) plus the `--only` / `--target-dir` flags + `download_clamp()` (fixes [lazy-qsar#33](https://github.com/ersilia-os/lazy-qsar/issues/33)) plus the entry-point SMILES validation refactor. Switch to a tagged release once one cuts (likely `v3.2.2`).
-   - **`lazyqsar setup --descriptors --only … --target-dir …`** materialises just the descriptor weights this pathogen uses (~34 MB chemeleon + ~167 MB clamp for abaumannii; cddd adds ~415 MB when needed) into the fork's checkpoint tree. The descriptor weights are NOT bundled in the repo — gitignored + not uploaded to eosvc. `02_init` writes the `--only` list per-pathogen by scanning sub-model dirs in CAMM; `03_test_pathogen.py` re-runs the same setup locally if files are missing (the shared cam-models-runtime env was built once and doesn't know about each new pathogen).
-   - **`ersilia-pack-utils` + `eosvc`** — standard pins.
+   - **`lazyqsar setup --descriptors --only … --target-dir …`** materialises just the descriptor weights this pathogen uses (~34 MB chemeleon + ~167 MB clamp for abaumannii; cddd adds ~415 MB when needed) into the fork's checkpoint tree at install time. The descriptor weights are NOT bundled in the repo — gitignored. `02_init` writes the `--only` list per-pathogen by scanning sub-model dirs in CAMM; `03_test_pathogen.py` re-runs the same setup locally if files are missing (the shared cam-models-runtime env was built once and doesn't know about each new pathogen).
+   - **`ersilia-pack-utils`** — Ersilia Hub I/O conventions.
 
 4. **`predict_type="rank"` always.** Despite the name, lazyqsar's "rank" output is a calibrated, batch-independent probability-like score (not a relative ranking). The training repo's `scripts/12` and `scripts/14` both consume it as a probability. In **user-facing docs** (run_columns descriptions, metadata Interpretation, README) call it a "probability" — never "rank" and never "relative to the input batch."
 
@@ -137,9 +136,9 @@ These override the older guidance that may still be sitting in old plans, notebo
 
 Before pushing the fork's PR, confirm:
 
-- `model/checkpoints/` contains the real ~600 MB tracked via Git LFS (`.gitattributes` has the four LFS rules).
-- `access.json` + `.eosvc/access.lock.json` are committed.
-- `.gitattributes` LFS-tracks `*.onnx`, `*.pt`, `*.h5`, and the one big `cddd_encoder_smiles.csv`.
+- `model/checkpoints/models/` is populated with the sub-models (~50 MB total, plain git — no LFS, no eosvc).
+- `model/checkpoints/reports.csv` is the pathogen-filtered subset.
+- `model/checkpoints/featurizer_weights_home/` contains only `.gitkeep` (descriptor weights are downloaded at install time).
 - `run_output.csv` is byte-identical to a fresh re-run.
 - Title/Description/Interpretation respect the length rules from §8.
 - All Tag/Biomedical Area/Target Organism entries are in the controlled vocab files.
@@ -148,14 +147,12 @@ Then:
 
 ```bash
 cd eosXXXX
-git lfs install                       # one-time per machine
-git add access.json .eosvc/access.lock.json .gitignore .gitattributes \
-        install.yml metadata.yml \
+git add .gitignore install.yml metadata.yml \
         model/framework/code/main.py \
         model/framework/columns/run_columns.csv \
         model/framework/examples/run_input.csv \
         model/framework/examples/run_output.csv \
-        model/checkpoints/             # ~600 MB; LFS-tracked via .gitattributes
+        model/checkpoints/             # ~50 MB; regular git
 git commit -m "Add antimicrobial activity model for {Full pathogen name}"
 git push origin main
 

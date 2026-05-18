@@ -6,13 +6,11 @@ What this script does (idempotent where it can be):
      the issue's bot comment if not yet recorded.
   2. Fork ersilia-os/{eosXXXX} -> arnaucoma24/{eosXXXX} and clone into
      ./{eosXXXX}/ at the coordinator-repo root.
-  3. Delete the template's mock.txt; rewrite .gitattributes with our
-     four real LFS rules; rewrite .gitignore so model/checkpoints is
-     visible to git (LFS-tracked) but model/framework/fit/ stays ignored;
-     touch model/framework/fit/.gitkeep.
+  3. Delete the template's mock.txt; rewrite .gitignore (model/checkpoints/
+     ships via regular git; model/framework/fit/ and the descriptor
+     weights dir stay ignored); touch model/framework/fit/.gitkeep.
   4. Copy the pathogen's sub-models from $PATH_TO_CAMM into
-     model/checkpoints/models/<sub_model>/, copy featurizer weights into
-     model/checkpoints/featurizer_weights_home/.lazyqsar/, and write the
+     model/checkpoints/models/<sub_model>/ and write the
      pathogen-filtered reports.csv at model/checkpoints/reports.csv.
   5. Pick 3 SMILES from the training positives (30-80 chars) and write
      model/framework/examples/run_input.csv.
@@ -78,26 +76,12 @@ commands:
     - ["pip", "lazyqsar[descriptors] @ git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"]
     - "lazyqsar setup --descriptors --only {only} --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
     - ["pip", "ersilia-pack-utils", "0.1.5"]
-    - ["pip", "eosvc", "1.1.0"]
-"""
-
-GITATTRIBUTES = """\
-*.onnx filter=lfs diff=lfs merge=lfs -text
-*.pt filter=lfs diff=lfs merge=lfs -text
-*.h5 filter=lfs diff=lfs merge=lfs -text
-"""
-
-ACCESS_JSON = """\
-{
-  "checkpoints": "public",
-  "fit": "public"
-}
 """
 
 GITIGNORE_HEADER = """\
-# model/checkpoints/ is intentionally NOT ignored — tracked via Git LFS
-# (see .gitattributes). eosvc still uploads the same files to S3 in
-# parallel; the Hub uses eosvc at install time, CI uses LFS.
+# Sub-models under model/checkpoints/models/ and model/checkpoints/reports.csv
+# ship via regular git. featurizer_weights_home/ is populated at install time
+# by `lazyqsar setup` (see install.yml) and is not committed.
 model/framework/fit/*
 !model/framework/fit/.gitkeep
 
@@ -234,10 +218,10 @@ def _fork_and_clone(eosXXXX, dest):
 def _populate_checkpoints(pathogen, fork):
     """Copy sub-models + filtered reports.csv. Return sub-model order from reports.csv.
 
-    Descriptor weights (chemeleon + clamp) are NOT copied here — `lazyqsar setup
-    --descriptors --only chemeleon,clamp --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar`
-    runs at install time (see install.yml) and pulls them from upstream. We only touch
-    a `.gitkeep` so the directory survives a clean clone.
+    Descriptor weights are NOT copied here — `lazyqsar setup --descriptors --only …
+    --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` runs at install
+    time (see install.yml) and pulls them from upstream. We only touch a `.gitkeep`
+    so the directory survives a clean clone.
     """
     import pandas as pd
     ckpt = os.path.join(fork, "model", "checkpoints")
@@ -435,21 +419,16 @@ def main():
     mock = os.path.join(fork, "mock.txt")
     if os.path.exists(mock):
         subprocess.run(["git", "-C", fork, "rm", "-f", "mock.txt"], check=False)
-    # .gitattributes — write real LFS rules
-    with open(os.path.join(fork, ".gitattributes"), "w") as f:
-        f.write(GITATTRIBUTES)
-    # access.json
-    with open(os.path.join(fork, "access.json"), "w") as f:
-        f.write(ACCESS_JSON)
     # .gitignore — prepend our block (preserve any existing content below)
     gi_path = os.path.join(fork, ".gitignore")
     existing = ""
     if os.path.exists(gi_path):
         with open(gi_path) as f:
             existing = f.read()
-    # Strip any previous version of our block, then prepend the fresh one.
+    # Strip any previous version of our block (covers both the eosvc/LFS-era
+    # banner and the current regular-git banner), then prepend the fresh one.
     existing = re.sub(
-        r"^# model/checkpoints/ is intentionally.*?(?=\n[^#!\nm]|\Z)",
+        r"^# (?:model/checkpoints/ is intentionally|Sub-models under model/checkpoints/).*?(?=\n[^#!\nm]|\Z)",
         "", existing, count=1, flags=re.DOTALL,
     )
     with open(gi_path, "w") as f:

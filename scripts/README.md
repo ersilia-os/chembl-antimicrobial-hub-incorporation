@@ -15,7 +15,7 @@ Opens a Model Request issue at `ersilia-os/ersilia` with the registry's title + 
 **Cutoff/rule:** Bails if the registry row already has an `issue_number` — re-running is a no-op.
 
 ### 02_init_pathogen.py
-Mechanical scaffolding of the fork. Looks up `eosXXXX` from the issue's bot comment (or uses the value already in the registry); forks `ersilia-os/{eosXXXX}` to `arnaucoma24/{eosXXXX}` and clones it into `./{eosXXXX}/`; writes the constants (`access.json`, `.gitattributes` with the four LFS rules, `.gitignore` that does NOT exclude `model/checkpoints/`, `install.yml`); copies sub-models + featurizer weights + filtered `reports.csv` from `$PATH_TO_CAMM`; picks 3 SMILES from `03_selected_positives.csv` (30-80 chars). Generates **drafts** of `main.py` (with `MODEL_NAMES` derived from `reports.csv`), `run_columns.csv`, and `metadata.yml`. These three drafts need a Claude+human review before running 03.
+Mechanical scaffolding of the fork. Looks up `eosXXXX` from the issue's bot comment (or uses the value already in the registry); forks `ersilia-os/{eosXXXX}` to `arnaucoma24/{eosXXXX}` and clones it into `./{eosXXXX}/`; writes `.gitignore` (sub-models under `model/checkpoints/` ship via regular git; `featurizer_weights_home/` stays ignored — downloaded at install time) and a per-pathogen `install.yml`; copies sub-models + filtered `reports.csv` from `$PATH_TO_CAMM`; picks 3 SMILES from `03_selected_positives.csv` (30-80 chars). Generates **drafts** of `main.py` (with `MODEL_NAMES` derived from `reports.csv`), `run_columns.csv`, and `metadata.yml`. These three drafts need a Claude+human review before running 03.
 
 ### 03_test_pathogen.py
 Activates `cam-models-runtime`, runs `bash model/framework/run.sh`, and asserts:
@@ -27,7 +27,7 @@ Activates `cam-models-runtime`, runs `bash model/framework/run.sh`, and asserts:
 Exits non-zero on any failure.
 
 ### 04_publish_pathogen.py
-`eosvc upload --path checkpoints/` (S3 path for the Hub), `git lfs install`, `git add` the standard allowlist, commit, `git push origin main` (LFS uploads ~620 MB via GitHub LFS), `gh pr create` from `arnaucoma24/{eosXXXX}` to `ersilia-os/{eosXXXX}`. The PR body links the originating issue (`Related to …` — does NOT auto-close, per user preference).
+`git add` the standard allowlist, commit, `git push origin main` (regular git — sub-models are ~50 MB total), `gh pr create` from `arnaucoma24/{eosXXXX}` to `ersilia-os/{eosXXXX}`. The PR body links the originating issue (`Related to …` — does NOT auto-close, per user preference).
 
 ## Standard per-pathogen workflow
 
@@ -62,5 +62,4 @@ To validate the scripts before running on a new pathogen, you can re-run `02_ini
 
 - The `cam-models-runtime` env must already exist before running 03 (built once from any fork's `install.yml`).
 - 6 pathogens have a `short_tag` that is not yet in `ersilia/hub/content/metadata/tag.txt`. Append them to that file (separate PR to ersilia-os/ersilia) before publishing those pathogens, or the schema check will fail on `Model Tag`. Affected: `C.albicans, Enterobacter, Campylobacter, H.pylori, S.mansoni, S.pneumoniae`.
-- 04_publish requires AWS credentials in `~/.aws/credentials` so `eosvc upload` can push to `s3://eosvc-models-public/`.
 - A GitHub auth token via `gh auth login` (HTTPS) is required for 01 (issue create) and 04 (PR create).
