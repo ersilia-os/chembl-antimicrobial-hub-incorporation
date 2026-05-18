@@ -169,10 +169,14 @@ def _detect_eosXXXX(issue_number):
 
 
 def _fork_and_clone(eosXXXX, dest):
-    """gh repo fork + git clone, both idempotent."""
+    """gh repo fork + git clone, both idempotent.
+
+    `gh repo fork --org` only works for organisation accounts; arnaucoma24 is
+    a user account, so we omit --org and let gh fork into the authenticated
+    user's default account (which must be arnaucoma24).
+    """
     subprocess.run(
-        ["gh", "repo", "fork", f"ersilia-os/{eosXXXX}",
-         "--org", "arnaucoma24", "--clone=false"],
+        ["gh", "repo", "fork", f"ersilia-os/{eosXXXX}", "--clone=false"],
         check=False,  # "already exists" is fine
     )
     if not os.path.isdir(dest):
