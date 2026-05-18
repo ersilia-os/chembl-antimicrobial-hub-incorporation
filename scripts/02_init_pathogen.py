@@ -226,6 +226,7 @@ def _populate_checkpoints(pathogen, fork):
     # reports.csv → pathogen subset, in 10_reports.csv order
     reports_all = pd.read_csv(os.path.join(PATH_TO_CAMM, "output", "results", "10_reports.csv"))
     sub = reports_all[reports_all["pathogen"] == pathogen].copy()
+    sub = sub.drop(columns=["predict_rank_actives", "predict_rank_inactives"], errors="ignore")
     sub.to_csv(os.path.join(ckpt, "reports.csv"), index=False)
 
     return sub["model_name"].tolist()
