@@ -87,10 +87,15 @@ def main():
         tags=_build_tags(row),
     )
 
+    # Issue title must match the .github/ISSUE_TEMPLATE/model_request.yml format:
+    # title: "🦠 Model Request: <name>". The Ersilia approval bot keys off this.
+    issue_title = f"🦠 Model Request: {row['title']}"
+
     print(f"Creating issue for {args.pathogen} at ersilia-os/ersilia...")
+    print(f"  title: {issue_title}")
     res = subprocess.run(
         ["gh", "issue", "create", "--repo", "ersilia-os/ersilia",
-         "--title", row["title"], "--body", body, "--label", "new-model"],
+         "--title", issue_title, "--body", body, "--label", "new-model"],
         capture_output=True, text=True,
     )
     if res.returncode != 0:
