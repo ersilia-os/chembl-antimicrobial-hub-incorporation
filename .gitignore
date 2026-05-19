@@ -1,6 +1,9 @@
 # Per-pathogen Ersilia model forks (each cloned in-place, tracked in its own git)
 eos*/
 
+# tmp
+tmp/*
+
 # Manually added
 .DS_Store
 .vscode/

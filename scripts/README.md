@@ -29,6 +29,16 @@ Exits non-zero on any failure.
 ### 04_publish_pathogen.py
 `git add` the standard allowlist, commit, `git push origin main` (regular git — sub-models are ~50 MB total), `gh pr create` from `arnaucoma24/{eosXXXX}` to `ersilia-os/{eosXXXX}`. The PR body links the originating issue (`Related to …` — does NOT auto-close, per user preference).
 
+### _test_submodels.py (auxiliary, not in main flow)
+Per-sub-model consistency check. For every sub-model under `<fork>/model/checkpoints/models/`, runs `lazyqsar.predict()` in isolation (single-entry `model_dir`) and dumps the 4-decimal-rounded prob_ranks to `tmp/{eosXXXX}_{sub}.csv`. Then compares each isolated column against the same column in `run_output.csv` (the batched-dict output produced by 03). Exits non-zero on any mismatch.
+
+Use this when you suspect cross-talk between sub-models or descriptor caching surprises. Run after 03 so that `run_output.csv` exists. Leading underscore signals "auxiliary tool, not part of the 01-04 numbered flow."
+
+```bash
+python scripts/03_test_pathogen.py --pathogen abaumannii   # produces run_output.csv
+python scripts/_test_submodels.py  --pathogen abaumannii   # N CSVs in tmp/, PASS/FAIL summary
+```
+
 ## Standard per-pathogen workflow
 
 ```bash
