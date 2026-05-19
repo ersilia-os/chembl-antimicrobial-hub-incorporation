@@ -153,13 +153,28 @@ git add .gitignore install.yml metadata.yml \
         model/framework/columns/run_columns.csv \
         model/framework/examples/run_input.csv \
         model/framework/examples/run_output.csv \
+        model/framework/fit/.gitkeep \
         model/checkpoints/             # ~50 MB; regular git
 git commit -m "Add antimicrobial activity model for {Full pathogen name}"
 git push origin main
 
 gh pr create --repo ersilia-os/eosXXXX \
   --title "Add antimicrobial activity model for {Full pathogen name}" \
-  --body "Related to ersilia-os/ersilia#<issue-number>."
+  --body "$(cat <<'EOF'
+Related to ersilia-os/ersilia#<issue-number>.
+
+Packages the {Full pathogen name} QSAR sub-models from ersilia-os/chembl-antimicrobial-models into a single Hub model.
+
+- Output: 1 + N columns (\`consensus_score\` + per-sub-model probabilities).
+- Consensus: W1-W7 + W8 quality-weighted average + tanh IQR-restoring transform, mirroring \`chembl-antimicrobial-models/scripts/14_consensus_scoring.py\`.
+- Sub-model checkpoints (~50 MB) ship in regular git; descriptor weights are downloaded at install time by \`lazyqsar setup\`.
+- Tested locally on Python 3.12 with \`lazyqsar[descriptors]@42ab866\`.
+
+Per-pathogen procedure documented at https://github.com/ersilia-os/chembl-antimicrobial-hub-incorporation/blob/main/docs/per-pathogen-runbook.md.
+EOF
+)"
 ```
+
+(Same body that `scripts/04_publish_pathogen.py:PR_BODY_TEMPLATE` emits — keep in sync if either changes.)
 
 Once merged + workflows green, delete the personal fork (`gh repo delete arnaucoma24/eosXXXX --yes`) and update the [monitoring table](#monitoring-table).

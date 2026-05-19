@@ -23,7 +23,10 @@ import sys
 
 REPO_ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REGISTRY    = os.path.join(REPO_ROOT, "data", "00_registry.csv")
-CONDA_SH    = "/home/acomajuncosa/programs/miniconda3/etc/profile.d/conda.sh"
+CONDA_SH    = os.environ.get(
+    "CONDA_SH",
+    os.path.expanduser("~/programs/miniconda3/etc/profile.d/conda.sh"),
+)
 RUNTIME_ENV = "cam-models-runtime"
 
 # Descriptors lazyqsar can pre-download. morgan + rdkit are computed on the fly.
