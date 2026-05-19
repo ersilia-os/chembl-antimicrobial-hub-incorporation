@@ -24,18 +24,18 @@ Per-pathogen progress through the incorporation workflow. Update each column as 
 | pathogen | issue # | forked to arnaucoma24 | model prepared | PR merged | workflows passed | fork removed |
 |----------|---------|-----------------------|----------------|-----------|------------------|--------------|
 | abaumannii    | [#1849](https://github.com/ersilia-os/ersilia/issues/1849) | True  | True  | True  | True  | True  |
-| efaecium      | —    | False | False | False | False | False |
-| saureus       | —    | False | False | False | False | False |
-| kpneumoniae   | —    | False | False | False | False | False |
-| paeruginosa   | —    | False | False | False | False | False |
-| ecoli         | —    | False | False | False | False | False |
-| mtuberculosis | —    | False | False | False | False | False |
-| pfalciparum   | —    | False | False | False | False | False |
 | calbicans     | —    | False | False | False | False | False |
-| enterobacter  | —    | False | False | False | False | False |
 | campylobacter | —    | False | False | False | False | False |
+| ecoli         | —    | False | False | False | False | False |
+| efaecium      | —    | False | False | False | False | False |
+| enterobacter  | —    | False | False | False | False | False |
 | hpylori       | —    | False | False | False | False | False |
+| kpneumoniae   | —    | False | False | False | False | False |
+| mtuberculosis | —    | False | False | False | False | False |
 | ngonorrhoeae  | —    | False | False | False | False | False |
+| paeruginosa   | —    | False | False | False | False | False |
+| pfalciparum   | —    | False | False | False | False | False |
+| saureus       | —    | False | False | False | False | False |
 | smansoni      | —    | False | False | False | False | False |
 | spneumoniae   | —    | False | False | False | False | False |
 
