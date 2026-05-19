@@ -89,10 +89,11 @@ These override the older guidance that may still be sitting in old plans, notebo
    python: "3.12"
    commands:
        - ["pip", "torch", "2.6.0", "--index-url", "https://download.pytorch.org/whl/cpu"]
-       - ["pip", "lazyqsar[descriptors] @ git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"]
+       - "pip install lazyqsar[descriptors]@git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"
        - "lazyqsar setup --descriptors --only chemeleon,clamp --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
        - ["pip", "ersilia-pack-utils", "0.1.5"]
    ```
+   Note: the lazyqsar line is a **raw string command**, not a list. `ersilia-pack`'s YAML install parser (`_convert_pip_entry_to_bash`) treats the 3rd element of any `["pip", ...]` list as a version and rejects entries with fewer than 3 elements — PEP 508 direct references (`pkg @ git+url`) don't fit that schema. Raw strings bypass that check.
    Why each line, in order:
    - **CPU torch FIRST** so the subsequent `lazyqsar[descriptors]` install sees `torch>=2.6.0` already satisfied and won't pull the default PyPI CUDA wheel (~3 GB of NVIDIA libs we don't need).
    - **`lazyqsar[descriptors] @ git+…@42ab866`** — pinned to the post-3.2.1 commit that ships lazy imports of `xgboost`/`sklearn`/`joblib` (fixes [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31)) plus the `--only` / `--target-dir` flags + `download_clamp()` (fixes [lazy-qsar#33](https://github.com/ersilia-os/lazy-qsar/issues/33)) plus the entry-point SMILES validation refactor. Switch to a tagged release once one cuts (likely `v3.2.2`).

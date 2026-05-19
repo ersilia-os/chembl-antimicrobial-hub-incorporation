@@ -208,7 +208,7 @@ For abaumannii's complete file see [eos21dr/model/framework/columns/run_columns.
 python: "3.12"
 commands:
     - ["pip", "torch", "2.6.0", "--index-url", "https://download.pytorch.org/whl/cpu"]
-    - ["pip", "lazyqsar[descriptors] @ git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"]
+    - "pip install lazyqsar[descriptors]@git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"
     - "lazyqsar setup --descriptors --only chemeleon,clamp --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
     - ["pip", "ersilia-pack-utils", "0.1.5"]
 ```
@@ -217,7 +217,7 @@ For pathogens that also use cddd (e.g. mtuberculosis), the third line becomes `-
 
 Order matters:
 1. **CPU torch FIRST** so the subsequent `lazyqsar[descriptors]` install sees `torch>=2.6.0` already satisfied and won't pull the default PyPI CUDA wheel (~3 GB of NVIDIA libs we don't need). Final env is ~2.7 GB instead of ~7 GB.
-2. `lazyqsar[descriptors] @ git+…@42ab866` — pinned to the post-3.2.1 commit on `main` that ships lazy imports for `xgboost`/`sklearn`/`joblib` (so `[descriptors]` alone now works for inference, fixes [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31)), plus the `--only` / `--target-dir` setup flags + `download_clamp()` (fixes [lazy-qsar#33](https://github.com/ersilia-os/lazy-qsar/issues/33)), plus a SMILES-validation refactor (5× speedup on validation for large batches). Switch to a tagged release once one cuts (likely `v3.2.2`).
+2. `lazyqsar[descriptors]@git+…@42ab866` — pinned to the post-3.2.1 commit on `main` that ships lazy imports for `xgboost`/`sklearn`/`joblib` (so `[descriptors]` alone now works for inference, fixes [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31)), plus the `--only` / `--target-dir` setup flags + `download_clamp()` (fixes [lazy-qsar#33](https://github.com/ersilia-os/lazy-qsar/issues/33)), plus a SMILES-validation refactor (5× speedup on validation for large batches). Switch to a tagged release once one cuts (likely `v3.2.2`). Written as a raw string (not a list) because `ersilia-pack`'s YAML install parser rejects 2-element `["pip", "<spec>"]` lists — it treats the 3rd element of any `["pip", ...]` list as a version, so PEP 508 direct references (`pkg @ git+url`) only work in the string form.
 3. `lazyqsar setup --descriptors --only … --target-dir …` materialises just the descriptor weights this pathogen needs (~34 MB chemeleon + ~167 MB clamp + optional ~415 MB cddd) into the fork's checkpoint tree at install time. The weights are NOT bundled in the repo — gitignored.
 4. `ersilia-pack-utils==0.1.5` — Ersilia Hub I/O conventions.
 

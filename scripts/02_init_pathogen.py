@@ -73,7 +73,7 @@ def _install_yml(descriptors_needed):
     return f"""python: "3.12"
 commands:
     - ["pip", "torch", "2.6.0", "--index-url", "https://download.pytorch.org/whl/cpu"]
-    - ["pip", "lazyqsar[descriptors] @ git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"]
+    - "pip install lazyqsar[descriptors]@git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"
     - "lazyqsar setup --descriptors --only {only} --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
     - ["pip", "ersilia-pack-utils", "0.1.5"]
 """
