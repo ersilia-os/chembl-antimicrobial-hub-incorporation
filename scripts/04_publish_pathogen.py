@@ -27,8 +27,8 @@ Packages the {full_name} QSAR sub-models from ersilia-os/chembl-antimicrobial-mo
 
 - Output: 1 + N columns (`consensus_score` + per-sub-model probabilities).
 - Consensus: W1-W7 + W8 quality-weighted average + tanh IQR-restoring transform, mirroring `chembl-antimicrobial-models/scripts/14_consensus_scoring.py`.
-- Sub-model checkpoints (~50 MB) ship in regular git; descriptor weights are downloaded at install time by `lazyqsar setup`.
-- Tested locally on Python 3.12 with `lazyqsar[descriptors]@42ab866`.
+- Sub-model checkpoints ship in regular git; descriptor weights are downloaded at install time by `lazyqsar setup`.
+- Tested locally on Python 3.12 with `lazyqsar==3.3.0` + `lazyqsar setup --descriptors --only …` (no `[descriptors]` extra, to avoid CUDA torch).
 
 Per-pathogen procedure documented at https://github.com/ersilia-os/chembl-antimicrobial-hub-incorporation/blob/main/docs/per-pathogen-runbook.md.
 """
@@ -40,6 +40,7 @@ FILES_TO_COMMIT = [
     "install.yml",
     "metadata.yml",
     "model/framework/code/main.py",
+    "model/framework/code/consensus.py",
     "model/framework/columns/run_columns.csv",
     "model/framework/examples/run_input.csv",
     "model/framework/examples/run_output.csv",
@@ -111,11 +112,13 @@ def main():
 
     print()
     print("=" * 60)
-    print(f"Done. Watch CI:  gh pr checks 1 --repo ersilia-os/{eosXXXX}")
-    print(f"After CI is green and the PR merges, manually:")
+    print(f"Done. Watch PR CI:  gh pr checks 1 --repo ersilia-os/{eosXXXX}")
+    print(f"After the PR merges (step v + vi in CLAUDE.md), manually:")
     print(f"  - close ersilia-os/ersilia#{row['issue_number']}")
-    print(f"  - delete the fork:  gh repo delete arnaucoma24/{eosXXXX} --yes")
-    print(f"  - update the monitoring table in CLAUDE.md.")
+    print(f"  - delete the GitHub fork:  gh repo delete arnaucoma24/{eosXXXX} --yes")
+    print(f"  - delete the local clone:  rm -rf {eosXXXX}")
+    print(f"  - confirm post-merge workflows on ersilia-os/{eosXXXX} main are green")
+    print(f"  - update the monitoring table in CLAUDE.md (PR merged, cleaned up, workflows passed).")
 
 
 if __name__ == "__main__":

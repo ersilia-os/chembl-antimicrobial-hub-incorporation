@@ -21,31 +21,31 @@ PATH_TO_CAMM=/aloy/home/acomajuncosa/Ersilia/chembl-antimicrobial-models
 
 Per-pathogen progress through the incorporation workflow. Update each column as the corresponding step completes.
 
-| pathogen | issue # | forked to arnaucoma24 | model prepared | PR merged | workflows passed | fork removed |
-|----------|---------|-----------------------|----------------|-----------|------------------|--------------|
-| abaumannii    | [#1849](https://github.com/ersilia-os/ersilia/issues/1849) | True  | True  | True  | True  | True  |
-| calbicans     | —    | False | False | False | False | False |
-| campylobacter | —    | False | False | False | False | False |
-| ecoli         | —    | False | False | False | False | False |
-| efaecium      | —    | False | False | False | False | False |
-| enterobacter  | —    | False | False | False | False | False |
-| hpylori       | —    | False | False | False | False | False |
-| kpneumoniae   | —    | False | False | False | False | False |
-| mtuberculosis | —    | False | False | False | False | False |
-| ngonorrhoeae  | —    | False | False | False | False | False |
-| paeruginosa   | —    | False | False | False | False | False |
-| pfalciparum   | —    | False | False | False | False | False |
-| saureus       | —    | False | False | False | False | False |
-| smansoni      | —    | False | False | False | False | False |
-| spneumoniae   | —    | False | False | False | False | False |
+| pathogen | issue # | eos id | forked to arnaucoma24 | model prepared | PR merged | cleaned up | workflows passed |
+|----------|---------|--------|-----------------------|----------------|-----------|------------|------------------|
+| abaumannii    | [#1849](https://github.com/ersilia-os/ersilia/issues/1849) | [eos21dr](https://github.com/ersilia-os/eos21dr) | True  | True  | True  | True  | True  |
+| calbicans     | [#1852](https://github.com/ersilia-os/ersilia/issues/1852) | [eos8jx6](https://github.com/ersilia-os/eos8jx6) | True  | True  | True  | True  | True  |
+| campylobacter | [#1853](https://github.com/ersilia-os/ersilia/issues/1853) | [eos7iak](https://github.com/ersilia-os/eos7iak) | True  | False | False | False | False |
+| ecoli         | [#1854](https://github.com/ersilia-os/ersilia/issues/1854) | [eos5eya](https://github.com/ersilia-os/eos5eya) | True  | False | False | False | False |
+| efaecium      | [#1855](https://github.com/ersilia-os/ersilia/issues/1855) | [eos81zy](https://github.com/ersilia-os/eos81zy) | True  | False | False | False | False |
+| enterobacter  | [#1856](https://github.com/ersilia-os/ersilia/issues/1856) | [eos9bpi](https://github.com/ersilia-os/eos9bpi) | True  | False | False | False | False |
+| hpylori       | [#1857](https://github.com/ersilia-os/ersilia/issues/1857) | [eos9eyo](https://github.com/ersilia-os/eos9eyo) | True  | False | False | False | False |
+| kpneumoniae   | [#1858](https://github.com/ersilia-os/ersilia/issues/1858) | [eos6wb7](https://github.com/ersilia-os/eos6wb7) | True  | False | False | False | False |
+| mtuberculosis | [#1859](https://github.com/ersilia-os/ersilia/issues/1859) | [eos43d6](https://github.com/ersilia-os/eos43d6) | True  | False | False | False | False |
+| ngonorrhoeae  | [#1860](https://github.com/ersilia-os/ersilia/issues/1860) | [eos5qya](https://github.com/ersilia-os/eos5qya) | True  | False | False | False | False |
+| paeruginosa   | [#1861](https://github.com/ersilia-os/ersilia/issues/1861) | [eos2e3s](https://github.com/ersilia-os/eos2e3s) | True  | False | False | False | False |
+| pfalciparum   | [#1862](https://github.com/ersilia-os/ersilia/issues/1862) | [eos4an7](https://github.com/ersilia-os/eos4an7) | True  | False | False | False | False |
+| saureus       | [#1863](https://github.com/ersilia-os/ersilia/issues/1863) | [eos8lcw](https://github.com/ersilia-os/eos8lcw) | True  | False | False | False | False |
+| smansoni      | [#1864](https://github.com/ersilia-os/ersilia/issues/1864) | [eos8v1a](https://github.com/ersilia-os/eos8v1a) | True  | False | False | False | False |
+| spneumoniae   | [#1865](https://github.com/ersilia-os/ersilia/issues/1865) | [eos5q52](https://github.com/ersilia-os/eos5q52) | True  | False | False | False | False |
 
 Column meanings:
 - **issue #** — ID of the model-request issue at `ersilia-os/ersilia` (an `eosXXXX` ID is assigned when the issue is approved).
 - **forked to arnaucoma24** — auto-created `ersilia-os/eosXXXX` has been forked to `arnaucoma24/eosXXXX` and cloned locally.
 - **model prepared** — checkpoints, `main.py`, `metadata.yml`, `install.yml`, columns and examples all in place and tested locally.
 - **PR merged** — pull request from `arnaucoma24/eosXXXX` into `ersilia-os/eosXXXX` is merged.
-- **workflows passed** — the GitHub Actions on the merged commit (model test workflows on `ersilia-os/eosXXXX`) are green.
-- **fork removed** — `arnaucoma24/eosXXXX` fork has been deleted now that the model lives upstream.
+- **cleaned up** — both the `arnaucoma24/eosXXXX` GitHub fork AND the local `eos*/` clone in this repo have been deleted now that the model lives upstream.
+- **workflows passed** — the post-merge GitHub Actions on `ersilia-os/eosXXXX` main branch (model test workflows) are green.
 
 ---
 
@@ -57,7 +57,8 @@ Column meanings:
 | ii   | Once an `eosXXXX` ID is assigned and `ersilia-os/eosXXXX` is auto-created, fork it to `arnaucoma24` and clone locally |
 | iii  | Prepare the model (checkpoints, code, metadata.yml) |
 | iv   | Open pull request to `ersilia-os/eosXXXX` |
-| v    | Once merged and workflows pass, delete the `arnaucoma24/eosXXXX` fork |
+| v    | Once merged, delete the `arnaucoma24/eosXXXX` fork AND the local `eos*/` clone in this repo |
+| vi   | Confirm the post-merge GitHub Actions on `ersilia-os/eosXXXX` main are green |
 
 Update the [monitoring table](#monitoring-table) as each step completes.
 
@@ -75,30 +76,26 @@ The reference filled model is at [eos21dr/](eos21dr/) — clone its layout and o
 
 These override the older guidance that may still be sitting in old plans, notebooks, or PR descriptions.
 
-1. **Checkpoints ship via regular git; descriptor weights downloaded at install time.** Two storage paths, each serving different consumers:
-   - **Sub-models** (`model/checkpoints/models/{sub}/…`, ~50 MB per pathogen) and `model/checkpoints/reports.csv` → committed to the fork's regular git tree. No eosvc, no Git LFS — both were retired (see [chembl-antimicrobial-hub-incorporation@$THIS_COMMIT]) once descriptor weights moved to install-time download and the in-repo checkpoints fit comfortably in plain git. The Ersilia template ships a stray `mock.txt` — delete it.
-   - **Descriptor weights** (`model/checkpoints/featurizer_weights_home/.lazyqsar/{chemeleon_mp.pt, clamp_encoder.onnx, cddd_encoder.onnx, …}`, ~200-615 MB per pathogen depending on which featurizers are used) → NOT in the repo. Gitignored except for `.gitkeep`. Downloaded at install time by `lazyqsar setup --descriptors --only <list> --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` (see Key Principle #3). On dev machines, `scripts/03_test_pathogen.py` runs the same setup command on demand if files are missing.
-   - `.gitignore` should NOT exclude `model/checkpoints/models/` but MUST exclude `model/checkpoints/featurizer_weights_home/*` (with `.gitkeep` exception). `fit/` stays ignored.
+1. **Checkpoints ship via regular git; descriptor weights live in `$HOME/.lazyqsar/`.** Two storage paths, each serving different consumers:
+   - **Sub-models** (`model/checkpoints/models/{sub}/…`, ~50–350 MB per pathogen depending on sub-model count after the AUROC>0.7 filter) and `model/checkpoints/reports.csv` → committed to the fork's regular git tree. No eosvc, no Git LFS. The Ersilia template ships a stray `mock.txt` — delete it.
+   - **Descriptor weights** (`chemeleon_mp.pt`, `clamp_encoder.onnx`, `cddd_encoder.onnx`, ~34–615 MB depending on which featurizers are used) → NOT in the repo, NOT in the model tree. Downloaded at install time by `lazyqsar setup --descriptors --only <list>` into `$HOME/.lazyqsar/` (lazyqsar's default cache). main.py imports lazyqsar without any HOME override; lazyqsar finds the weights at runtime via `$HOME/.lazyqsar/`. On dev machines, `scripts/03_test_pathogen.py` runs the same setup on demand if files are missing.
+   - `.gitignore` should NOT exclude `model/checkpoints/models/`. `fit/` stays ignored. There is no `featurizer_weights_home/` inside the model tree anymore.
 
 2. **Two conda envs, never collapsed.**
    - `cam-hub-inc` (Python 3.10) — coordinator work: filtering `reports.csv`, `gh`, helper scripts.
    - `cam-models-runtime` (Python **3.12**) — shared model runtime, built from the `install.yml` template once and reused across every pathogen. Python 3.12 (not 3.10) because `chemprop==2.2.3` requires ≥3.11.
 
-3. **`install.yml` is per-pathogen** — same skeleton, but the `--only` list of descriptors varies. The template `scripts/02_init_pathogen.py` derives it from which featurizers each pathogen's sub-models actually use (subset of `chemeleon,clamp,cddd`). abaumannii's `install.yml` looks like:
+3. **`install.yml` is per-pathogen** — same skeleton, but the `--only` list of descriptors varies. The template `scripts/02_init_pathogen.py` derives it from which featurizers each pathogen's sub-models actually use (subset of `chemeleon,clamp,cddd`). A typical install.yml looks like:
    ```yaml
    python: "3.12"
    commands:
-       - ["pip", "torch", "2.6.0", "--index-url", "https://download.pytorch.org/whl/cpu"]
-       - "pip install lazyqsar[descriptors]@git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"
-       - "lazyqsar setup --descriptors --only chemeleon,clamp --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
        - ["pip", "ersilia-pack-utils", "0.1.5"]
+       - ["pip", "lazyqsar", "3.3.0"]
+       - "lazyqsar setup --descriptors --only chemeleon,clamp"
    ```
-   Note: the lazyqsar line is a **raw string command**, not a list. `ersilia-pack`'s YAML install parser (`_convert_pip_entry_to_bash`) treats the 3rd element of any `["pip", ...]` list as a version and rejects entries with fewer than 3 elements — PEP 508 direct references (`pkg @ git+url`) don't fit that schema. Raw strings bypass that check.
-   Why each line, in order:
-   - **CPU torch FIRST** so the subsequent `lazyqsar[descriptors]` install sees `torch>=2.6.0` already satisfied and won't pull the default PyPI CUDA wheel (~3 GB of NVIDIA libs we don't need).
-   - **`lazyqsar[descriptors] @ git+…@42ab866`** — pinned to the post-3.2.1 commit that ships lazy imports of `xgboost`/`sklearn`/`joblib` (fixes [lazy-qsar#31](https://github.com/ersilia-os/lazy-qsar/issues/31)) plus the `--only` / `--target-dir` flags + `download_clamp()` (fixes [lazy-qsar#33](https://github.com/ersilia-os/lazy-qsar/issues/33)) plus the entry-point SMILES validation refactor. Switch to a tagged release once one cuts (likely `v3.2.2`).
-   - **`lazyqsar setup --descriptors --only … --target-dir …`** materialises just the descriptor weights this pathogen uses (~34 MB chemeleon + ~167 MB clamp for abaumannii; cddd adds ~415 MB when needed) into the fork's checkpoint tree at install time. The descriptor weights are NOT bundled in the repo — gitignored. `02_init` writes the `--only` list per-pathogen by scanning sub-model dirs in CAMM; `03_test_pathogen.py` re-runs the same setup locally if files are missing (the shared cam-models-runtime env was built once and doesn't know about each new pathogen).
-   - **`ersilia-pack-utils`** — Ersilia Hub I/O conventions.
+   - **`ersilia-pack-utils`** — Ersilia Hub I/O conventions. `main.py` reads input via `read_smiles(input_file)` and writes output via `write_out(results, header, output_file)`, which dispatch on `.csv` / `.bin` extensions. No pandas roundtrip; pass the SMILES list straight into `lqsar_predict(smiles=…)`.
+   - **`lazyqsar==3.3.0`** (NOT `lazyqsar[descriptors]`!) — base install only. The `[descriptors]` extra would resolve `torch>=2.6.0` against PyPI and pull the CUDA wheel (~3 GB) plus a dozen `nvidia-*` transitive deps that pip won't auto-remove later. Base install ships just numpy / onnxruntime / pandas / h5py / psutil / rich / loguru — no torch yet.
+   - **`lazyqsar setup --descriptors --only …`** — `install_torch()` then runs `pip install torch --index-url https://download.pytorch.org/whl/cpu`. Because no torch is installed yet, this lands the CPU wheel fresh — no CUDA libs ever enter the env. Setup also pip-installs chemprop / rdkit / FPSim2 (chemprop transitively brings what chemeleon's descriptor needs at runtime — the `chemeleon` Python package itself is NOT required, see [lazy-qsar's chemeleon.py](https://github.com/ersilia-os/lazy-qsar/blob/main/lazyqsar/descriptors/chemeleon.py) for the chemprop-only fallback). `--only` restricts the descriptor-weight download to this pathogen's actual featurizers (~34 MB chemeleon + ~167 MB clamp for abaumannii; cddd adds ~415 MB when needed). Weights land in `$HOME/.lazyqsar/`. `03_test_pathogen.py` re-runs the same setup locally if files are missing.
 
 4. **`predict_type="rank"` always.** Despite the name, lazyqsar's "rank" output is a calibrated, batch-independent probability-like score (not a relative ranking). The training repo's `scripts/12` and `scripts/14` both consume it as a probability. In **user-facing docs** (run_columns descriptions, metadata Interpretation, README) call it a "probability" — never "rank" and never "relative to the input batch."
 
@@ -121,9 +118,9 @@ These override the older guidance that may still be sitting in old plans, notebo
    - Auto-generated keys (DockerHub, S3, Docker Architecture, Image Size, Computational Performance, Release, Contribution Date, …) should NOT be present in our YAML — Ersilia adds them at publish time. They show as `NOT PRESENT` in CI but that's informational only.
 
 9. **Controlled vocabularies.** Three metadata fields draw from closed lists in `ersilia-os/ersilia`:
-   - [`Tag`](https://github.com/ersilia-os/ersilia/blob/main/ersilia/hub/content/metadata/tag.txt)
-   - [`Biomedical Area`](https://github.com/ersilia-os/ersilia/blob/main/ersilia/hub/content/metadata/biomedical_area.txt) — note: there's no "Infectious disease"; use `Antimicrobial resistance`.
-   - [`Target Organism`](https://github.com/ersilia-os/ersilia/blob/main/ersilia/hub/content/metadata/target_organism.txt) — all 15 of our pathogens are in there.
+   - [`Tag`](https://github.com/ersilia-os/ersilia/blob/master/ersilia/hub/content/metadata/tag.txt) — after the May-2026 vocab refresh, species-abbreviation tags (`A.baumannii`, `C.albicans`, …) are gone. Species signalling now lives in `Target Organism` only. Our Tag block is `[ESKAPE if applicable, Antimicrobial activity, ChEMBL]`.
+   - [`Biomedical Area`](https://github.com/ersilia-os/ersilia/blob/master/ersilia/hub/content/metadata/biomedical_area.txt) — disease-specific entries (`Pneumonia`, `Diarrheal diseases`, `Tuberculosis`, `Malaria`, `Gonorrhea`, `Schistosomiasis`, `Candidiasis`, `Peptic ulcer disease`, …) were added. Per-pathogen value lives in [`data/00_registry.csv`](data/00_registry.csv) under the `biomedical_area` column (`;`-separated for multi-value). Policy: ESKAPE pathogens layer `Antimicrobial resistance` on top of the disease entry; non-ESKAPE list disease only.
+   - [`Target Organism`](https://github.com/ersilia-os/ersilia/blob/master/ersilia/hub/content/metadata/target_organism.txt) — restricted to Linnaean species. All 15 of our pathogens' `full_name` registry values match exactly.
 
    If a pathogen / area / tag is missing, **append it to the source-of-truth file in `ersilia/` before committing** (open a PR if you can't push directly).
 
@@ -137,9 +134,9 @@ These override the older guidance that may still be sitting in old plans, notebo
 
 Before pushing the fork's PR, confirm:
 
-- `model/checkpoints/models/` is populated with the sub-models (~50 MB total, plain git — no LFS, no eosvc).
+- `model/checkpoints/models/` is populated with the sub-models (plain git — no LFS, no eosvc; size varies per pathogen, ~50–350 MB).
 - `model/checkpoints/reports.csv` is the pathogen-filtered subset.
-- `model/checkpoints/featurizer_weights_home/` contains only `.gitkeep` (descriptor weights are downloaded at install time).
+- `model/checkpoints/` does NOT contain a `featurizer_weights_home/` dir (descriptor weights live in `$HOME/.lazyqsar/`, downloaded at install time).
 - `run_output.csv` is byte-identical to a fresh re-run.
 - Title/Description/Interpretation respect the length rules from §8.
 - All Tag/Biomedical Area/Target Organism entries are in the controlled vocab files.
@@ -150,11 +147,12 @@ Then:
 cd eosXXXX
 git add .gitignore install.yml metadata.yml \
         model/framework/code/main.py \
+        model/framework/code/consensus.py \
         model/framework/columns/run_columns.csv \
         model/framework/examples/run_input.csv \
         model/framework/examples/run_output.csv \
         model/framework/fit/.gitkeep \
-        model/checkpoints/             # ~50 MB; regular git
+        model/checkpoints/             # ~50–350 MB; regular git
 git commit -m "Add antimicrobial activity model for {Full pathogen name}"
 git push origin main
 
@@ -167,8 +165,8 @@ Packages the {Full pathogen name} QSAR sub-models from ersilia-os/chembl-antimic
 
 - Output: 1 + N columns (\`consensus_score\` + per-sub-model probabilities).
 - Consensus: W1-W7 + W8 quality-weighted average + tanh IQR-restoring transform, mirroring \`chembl-antimicrobial-models/scripts/14_consensus_scoring.py\`.
-- Sub-model checkpoints (~50 MB) ship in regular git; descriptor weights are downloaded at install time by \`lazyqsar setup\`.
-- Tested locally on Python 3.12 with \`lazyqsar[descriptors]@42ab866\`.
+- Sub-model checkpoints ship in regular git; descriptor weights are downloaded at install time by \`lazyqsar setup\`.
+- Tested locally on Python 3.12 with \`lazyqsar==3.3.0\` + \`lazyqsar setup --descriptors --only …\` (no \`[descriptors]\` extra, to avoid CUDA torch).
 
 Per-pathogen procedure documented at https://github.com/ersilia-os/chembl-antimicrobial-hub-incorporation/blob/main/docs/per-pathogen-runbook.md.
 EOF

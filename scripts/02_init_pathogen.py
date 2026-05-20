@@ -48,124 +48,175 @@ PATH_TO_CAMM = os.environ.get(
 _DOWNLOADABLE_DESCRIPTORS = ("chemeleon", "clamp", "cddd")
 
 
-def _descriptors_needed(pathogen):
+def _descriptors_needed(pathogen, model_names):
     """Scan `$PATH_TO_CAMM/output/results/09_models/{pathogen}/{sub_model}/`
-    and return the subset of {chemeleon, clamp, cddd} that appears in any
-    sub-model directory. This drives the --only list passed to
-    `lazyqsar setup --descriptors`.
+    for the kept sub-models and return the subset of {chemeleon, clamp, cddd}
+    that any of them use. Drives the --only list passed to
+    `lazyqsar setup --descriptors`. Must be called after
+    `_populate_checkpoints` so that filtered-out sub-models don't pull in
+    descriptor weights that are never used.
     """
     src = os.path.join(PATH_TO_CAMM, "output", "results", "09_models", pathogen)
     needed = set()
-    if os.path.isdir(src):
-        for sub in os.listdir(src):
-            sub_path = os.path.join(src, sub)
-            if not os.path.isdir(sub_path):
-                continue
-            for d in os.listdir(sub_path):
-                if d in _DOWNLOADABLE_DESCRIPTORS:
-                    needed.add(d)
+    for sub in model_names:
+        sub_path = os.path.join(src, sub)
+        if not os.path.isdir(sub_path):
+            continue
+        for d in os.listdir(sub_path):
+            if d in _DOWNLOADABLE_DESCRIPTORS:
+                needed.add(d)
     # Preserve canonical ordering from _DOWNLOADABLE_DESCRIPTORS.
     return [d for d in _DOWNLOADABLE_DESCRIPTORS if d in needed]
+
+
+# Sort hierarchy for sub-models in reports.csv / MODEL_NAMES. See
+# docs/per-pathogen-runbook.md and the plan at
+# ~/.claude/plans/zazzy-splashing-music.md for the rationale.
+# Label semantics match CAMM's _W1_MAP in scripts/10_aggregate_reports.py:
+# A and B are both "individual" datasets; M is merged; G is general.
+_SOURCE_RANK = {"chembl": 0, "pubchem": 1}
+_LABEL_RANK  = {"A": 0, "B": 1, "M": 2, "G": 3}
+_AUROC_FLOOR = 0.7  # strict >; below this, CAMM's w3 already collapses to 0
+
+
+def _sort_and_filter(reports_df):
+    """Drop sub-models with auroc_mean <= 0.7, then sort by
+    (source, label, n_compounds desc). Joins on `name` against
+    07_datasets_metadata.csv to pull source+label.
+    """
+    import pandas as pd
+    meta_path = os.path.join(PATH_TO_CAMM, "output", "results", "07_datasets_metadata.csv")
+    meta = pd.read_csv(meta_path)[["pathogen", "name", "source", "label"]]
+    df = reports_df.merge(meta, on=["pathogen", "name"], how="left", validate="one_to_one")
+    missing = df[df["source"].isna() | df["label"].isna()]
+    if not missing.empty:
+        sys.exit(
+            f"Sub-models missing in 07_datasets_metadata.csv: "
+            f"{missing['model_name'].tolist()}"
+        )
+    df = df[df["auroc_mean"] > _AUROC_FLOOR].copy()
+    df["_src"] = df["source"].map(_SOURCE_RANK)
+    df["_lbl"] = df["label"].map(_LABEL_RANK)
+    if df["_src"].isna().any() or df["_lbl"].isna().any():
+        bad = df[df["_src"].isna() | df["_lbl"].isna()]
+        sys.exit(
+            f"Unrecognized source/label values: "
+            f"{bad[['model_name', 'source', 'label']].to_dict('records')}"
+        )
+    df = df.sort_values(
+        ["_src", "_lbl", "n_compounds"],
+        ascending=[True, True, False],
+    )
+    return df.drop(columns=["_src", "_lbl", "source", "label"])
 
 
 def _install_yml(descriptors_needed):
     only = ",".join(descriptors_needed)
     return f"""python: "3.12"
 commands:
-    - ["pip", "torch", "2.6.0", "--index-url", "https://download.pytorch.org/whl/cpu"]
-    - "pip install lazyqsar[descriptors]@git+https://github.com/ersilia-os/lazy-qsar.git@42ab866"
-    - "lazyqsar setup --descriptors --only {only} --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar"
     - ["pip", "ersilia-pack-utils", "0.1.5"]
+    - ["pip", "lazyqsar", "3.3.0"]
+    - "lazyqsar setup --descriptors --only {only}"
 """
 
 GITIGNORE_HEADER = """\
 # Sub-models under model/checkpoints/models/ and model/checkpoints/reports.csv
-# ship via regular git. featurizer_weights_home/ is populated at install time
-# by `lazyqsar setup` (see install.yml) and is not committed.
+# ship via regular git. Descriptor weights live in $HOME/.lazyqsar/ — they are
+# downloaded at install time by `lazyqsar setup` and never committed here.
 model/framework/fit/*
 !model/framework/fit/.gitkeep
-
-# Descriptor weights are downloaded at install time by `lazyqsar setup --descriptors`
-# (see install.yml). Don't commit the downloaded artifacts.
-model/checkpoints/featurizer_weights_home/*
-!model/checkpoints/featurizer_weights_home/.gitkeep
 """
 
 MAIN_PY = '''\
+import csv
 import os
 import sys
 
+from ersilia_pack_utils.core import read_smiles, write_out
+from lazyqsar.api.classifier_predict import predict
+
+import consensus
+
+input_file  = sys.argv[1]
+output_file = sys.argv[2]
+root        = os.path.dirname(os.path.abspath(__file__))
+checkpoints = os.path.abspath(os.path.join(root, "..", "..", "checkpoints"))
+
+# Sub-model order: every row of run_columns.csv except the leading consensus_score.
+columns_file = os.path.abspath(os.path.join(root, "..", "columns", "run_columns.csv"))
+with open(columns_file) as f:
+    MODEL_NAMES = [row["name"] for row in csv.DictReader(f) if row["name"] != "consensus_score"]
+model_dir_dict = {m: os.path.join(checkpoints, "models", m) for m in MODEL_NAMES}
+
+_, smiles_list = read_smiles(input_file)
+R, cols_ordered = predict(model_dir_dict, smiles=smiles_list, predict_type="rank")
+results, header = consensus.compute_consensus(R, cols_ordered, MODEL_NAMES, checkpoints)
+write_out(results, header, output_file)
+'''
+
+
+CONSENSUS_PY = '''\
+"""Quality-weighted consensus across LazyQSAR sub-models.
+
+Mirrors chembl-antimicrobial-models/scripts/14_consensus_scoring.py:
+- W1..W7 are per-sub-model quality weights from reports.csv.
+- W8 is a per-compound weight that ramps 0->1 above each sub-model's
+  decision_cutoff_rank.
+- All 8 weights are uniformly averaged into an effective per-compound,
+  per-sub-model weight; the consensus is the weighted mean of prob_ranks;
+  a tanh transform then restores the IQR that averaging compresses
+  toward 0.5.
+"""
+
+import os
 import numpy as np
 import pandas as pd
 
-root        = os.path.dirname(os.path.abspath(__file__))
-checkpoints = os.path.abspath(os.path.join(root, "..", "..", "checkpoints"))
-input_file  = sys.argv[1]
-output_file = sys.argv[2]
-
-# Isolate matplotlib's config/cache dir BEFORE lazyqsar import. Without
-# this, matplotlib (transitively imported by lazyqsar's descriptor stack)
-# writes its font cache to $HOME/.cache/matplotlib — and we set HOME below
-# to point at our bundled featurizer weights, which would pollute
-# model/checkpoints/featurizer_weights_home/.cache/ on every run.
-# Upstream tracking issue: https://github.com/ersilia-os/lazy-qsar/issues/30.
-import atexit, shutil, tempfile
-_mpl_dir = tempfile.mkdtemp(prefix="mpl_")
-os.environ["MPLCONFIGDIR"] = _mpl_dir
-atexit.register(lambda: shutil.rmtree(_mpl_dir, ignore_errors=True))
-
-# LazyQSAR locates featurizer weights via $HOME/.lazyqsar/ — point it at our bundled copy.
-os.environ["HOME"] = os.path.join(checkpoints, "featurizer_weights_home")
-
-from lazyqsar.api.classifier_predict import predict as lqsar_predict
-
-MODEL_NAMES = [
-{model_names_block}
-]
-model_dir_dict = {{m: os.path.join(checkpoints, "models", m) for m in MODEL_NAMES}}
-
-# One call: descriptors are shared across all sub-models.
-tmp_out = output_file + ".tmp"
-lqsar_predict(
-    model_dir=model_dir_dict,
-    input_csv=input_file,
-    output_csv=tmp_out,
-    predict_type="rank",
-)
-ranks_df = pd.read_csv(tmp_out)
-os.remove(tmp_out)
-
-# Consensus (mirrors chembl-antimicrobial-models/scripts/14_consensus_scoring.py).
-reports = pd.read_csv(os.path.join(checkpoints, "reports.csv")).set_index("model_name")
-W_COLS = ["w1", "w2", "w3", "w4", "w5", "w6", "w7"]
-W_ALL_WEIGHTS = np.ones(len(W_COLS) + 1)
-
-prob_ranks = ranks_df[MODEL_NAMES].fillna(0.0).values
-w_quality  = np.array([reports.loc[m, W_COLS].values for m in MODEL_NAMES], dtype=float)
-cutoffs    = np.array([reports.loc[m, "decision_cutoff_rank"] for m in MODEL_NAMES], dtype=float)
-
-# w8: per-compound weight — 0 at/below decision cutoff, linear 0->1 above it.
-c  = np.clip(cutoffs[np.newaxis, :], 0.0, 1.0 - 1e-9)
-w8 = np.where(prob_ranks <= c, 0.0, (prob_ranks - c) / (1.0 - c))
-
-n, M = prob_ranks.shape
-w_all = np.empty((n, M, len(W_ALL_WEIGHTS)))
-w_all[:, :, :len(W_COLS)] = w_quality
-w_all[:, :,  len(W_COLS)] = w8
-w_eff = np.average(w_all, axis=-1, weights=W_ALL_WEIGHTS)
-
-consensus_raw = (prob_ranks * w_eff).sum(axis=1) / w_eff.sum(axis=1)
-
-# Tanh IQR-restoring transform — k depends only on number of sub-models.
+_W_COLS = ["w1", "w2", "w3", "w4", "w5", "w6", "w7"]
 _TANH_A, _TANH_TAU = 1.156, 6.47
-k = 2.0 * (1.0 + _TANH_A * (1.0 - np.exp(-M / _TANH_TAU)))
-consensus = 0.5 + 0.5 * np.tanh(k * (consensus_raw - 0.5)) / np.tanh(k / 2)
 
-out = pd.DataFrame({{
-    "consensus_score": consensus.round(4),
-    **{{m: ranks_df[m].round(4).values for m in MODEL_NAMES}},
-}})
-out.to_csv(output_file, index=False)
+
+def compute_consensus(R, cols_ordered, model_names, checkpoints_dir):
+    """Build the model's output matrix.
+
+    Args:
+        R:               (n, K) prob_rank matrix returned by lqsar_predict.
+        cols_ordered:    list of K column names matching R's columns (also from lqsar_predict).
+        model_names:     canonical sub-model order for this pathogen (length M, M <= K).
+        checkpoints_dir: path to model/checkpoints/ (must contain reports.csv).
+
+    Returns:
+        results: (n, 1+M) float array, rounded to 4 decimals.
+                 results[:, 0] is the tanh-transformed consensus score.
+                 results[:, 1:] is the per-sub-model prob_rank reordered to match model_names.
+        header:  ["consensus_score", *model_names].
+    """
+    name_to_idx = {c: i for i, c in enumerate(cols_ordered)}
+    prob_ranks = np.nan_to_num(
+        R[:, [name_to_idx[m] for m in model_names]], nan=0.0
+    )
+
+    reports = pd.read_csv(os.path.join(checkpoints_dir, "reports.csv")).set_index("model_name")
+    w_quality = np.array([reports.loc[m, _W_COLS].values for m in model_names], dtype=float)
+    cutoffs   = np.array([reports.loc[m, "decision_cutoff_rank"] for m in model_names], dtype=float)
+
+    c  = np.clip(cutoffs[np.newaxis, :], 0.0, 1.0 - 1e-9)
+    w8 = np.where(prob_ranks <= c, 0.0, (prob_ranks - c) / (1.0 - c))
+
+    n, M = prob_ranks.shape
+    n_w  = len(_W_COLS) + 1
+    w_all = np.empty((n, M, n_w))
+    w_all[:, :, :len(_W_COLS)] = w_quality
+    w_all[:, :,  len(_W_COLS)] = w8
+    w_eff = np.average(w_all, axis=-1, weights=np.ones(n_w))
+
+    raw = (prob_ranks * w_eff).sum(axis=1) / w_eff.sum(axis=1)
+    k   = 2.0 * (1.0 + _TANH_A * (1.0 - np.exp(-M / _TANH_TAU)))
+    consensus = 0.5 + 0.5 * np.tanh(k * (raw - 0.5)) / np.tanh(k / 2)
+
+    results = np.round(np.column_stack([consensus, prob_ranks]), 4)
+    header  = ["consensus_score", *model_names]
+    return results, header
 '''
 
 
@@ -218,35 +269,38 @@ def _fork_and_clone(eosXXXX, dest):
 def _populate_checkpoints(pathogen, fork):
     """Copy sub-models + filtered reports.csv. Return sub-model order from reports.csv.
 
-    Descriptor weights are NOT copied here — `lazyqsar setup --descriptors --only …
-    --target-dir model/checkpoints/featurizer_weights_home/.lazyqsar` runs at install
-    time (see install.yml) and pulls them from upstream. We only touch a `.gitkeep`
-    so the directory survives a clean clone.
+    Descriptor weights are NOT copied here. `lazyqsar setup --descriptors --cpu-torch
+    --only …` (in install.yml) downloads them into $HOME/.lazyqsar/ at install time.
     """
     import pandas as pd
     ckpt = os.path.join(fork, "model", "checkpoints")
     os.makedirs(os.path.join(ckpt, "models"), exist_ok=True)
 
-    # Sub-models
     src_models = os.path.join(PATH_TO_CAMM, "output", "results", "09_models", pathogen)
     if not os.path.isdir(src_models):
         sys.exit(f"No CAMM models dir for pathogen '{pathogen}': {src_models}")
+
+    # reports.csv → pathogen subset, filtered (auroc_mean > 0.7) and
+    # sorted by (source, label, n_compounds desc).
+    reports_all = pd.read_csv(os.path.join(PATH_TO_CAMM, "output", "results", "10_reports.csv"))
+    sub = reports_all[reports_all["pathogen"] == pathogen].copy()
+    sub = sub.drop(columns=["predict_rank_actives", "predict_rank_inactives"], errors="ignore")
+    sub = _sort_and_filter(sub)
+    if sub.empty:
+        sys.exit(
+            f"All sub-models for {pathogen} fall below the AUROC>{_AUROC_FLOOR} cutoff."
+        )
+    sub.to_csv(os.path.join(ckpt, "reports.csv"), index=False)
+    kept = set(sub["model_name"])
+
+    # Sub-models: copy only the ones kept by the filter+sort step.
     for m in sorted(os.listdir(src_models)):
+        if m not in kept:
+            continue
         src = os.path.join(src_models, m)
         dst = os.path.join(ckpt, "models", m)
         if os.path.isdir(src) and not os.path.exists(dst):
             shutil.copytree(src, dst)
-
-    # Featurizer dir placeholder (.gitkeep keeps the empty dir tracked).
-    fw_dir = os.path.join(ckpt, "featurizer_weights_home")
-    os.makedirs(fw_dir, exist_ok=True)
-    open(os.path.join(fw_dir, ".gitkeep"), "a").close()
-
-    # reports.csv → pathogen subset, in 10_reports.csv order
-    reports_all = pd.read_csv(os.path.join(PATH_TO_CAMM, "output", "results", "10_reports.csv"))
-    sub = reports_all[reports_all["pathogen"] == pathogen].copy()
-    sub = sub.drop(columns=["predict_rank_actives", "predict_rank_inactives"], errors="ignore")
-    sub.to_csv(os.path.join(ckpt, "reports.csv"), index=False)
 
     return sub["model_name"].tolist()
 
@@ -268,12 +322,18 @@ def _pick_smiles(pathogen, fork, n=3):
             f.write(s + "\n")
 
 
-def _draft_main_py(fork, model_names):
-    block = "\n".join(f'    "{m}",' for m in model_names)
+def _draft_main_py(fork):
     path = os.path.join(fork, "model", "framework", "code", "main.py")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
-        f.write(MAIN_PY.format(model_names_block=block))
+        f.write(MAIN_PY)
+
+
+def _draft_consensus_py(fork):
+    path = os.path.join(fork, "model", "framework", "code", "consensus.py")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(CONSENSUS_PY)
 
 
 def _consensus_threshold(cutoffs, w_quality):
@@ -339,11 +399,16 @@ def _draft_run_columns(fork, model_names):
 
 
 def _draft_metadata(fork, row, eosXXXX, model_names):
-    tags = [row["short_tag"]]
+    tags = []
     if row["eskape"].strip().lower() == "true":
         tags.append("ESKAPE")
     tags.extend(["Antimicrobial activity", "ChEMBL"])
     tag_block = "\n".join(f"  - {t}" for t in tags)
+
+    areas = [a.strip() for a in row["biomedical_area"].split(";") if a.strip()]
+    if not areas:
+        sys.exit(f"Empty biomedical_area for {row['pathogen']} in 00_registry.csv")
+    area_block = "\n".join(f"  - {a}" for a in areas)
 
     metadata = f"""\
 Identifier: {eosXXXX}
@@ -370,7 +435,7 @@ Interpretation: Probability of antimicrobial activity against {row["full_name"]}
 Tag:
 {tag_block}
 Biomedical Area:
-  - Antimicrobial resistance
+{area_block}
 Target Organism:
   - {row["full_name"]}
 Publication Type: Other
@@ -437,21 +502,24 @@ def main():
     fit_keep = os.path.join(fork, "model", "framework", "fit", ".gitkeep")
     os.makedirs(os.path.dirname(fit_keep), exist_ok=True)
     open(fit_keep, "a").close()
-    # install.yml — `--only` list is per-pathogen, derived from sub-model featurizers
-    descriptors_needed = _descriptors_needed(pathogen)
-    print(f"      Descriptors needed for {pathogen}: {descriptors_needed}")
-    with open(os.path.join(fork, "install.yml"), "w") as f:
-        f.write(_install_yml(descriptors_needed))
 
     print(f"[3/7] Populate model/checkpoints/")
     model_names = _populate_checkpoints(pathogen, fork)
     print(f"      Sub-models (in reports.csv order): {model_names}")
 
+    # install.yml — `--only` list is per-pathogen, derived from the *kept*
+    # sub-models' featurizers (must run after _populate_checkpoints).
+    descriptors_needed = _descriptors_needed(pathogen, model_names)
+    print(f"      Descriptors needed for {pathogen}: {descriptors_needed}")
+    with open(os.path.join(fork, "install.yml"), "w") as f:
+        f.write(_install_yml(descriptors_needed))
+
     print(f"[4/7] Pick 3 SMILES from training positives -> run_input.csv")
     _pick_smiles(pathogen, fork, n=3)
 
-    print(f"[5/7] Draft main.py")
-    _draft_main_py(fork, model_names)
+    print(f"[5/7] Draft main.py + consensus.py")
+    _draft_main_py(fork)
+    _draft_consensus_py(fork)
 
     print(f"[6/7] Draft run_columns.csv (DRAFT — Claude must rewrite descriptions)")
     _draft_run_columns(fork, model_names)
@@ -461,15 +529,14 @@ def main():
 
     print()
     print("=" * 72)
-    print(f"Drafted 3 files that need Claude + human review BEFORE running 03_test:")
-    print(f"  {fork}/model/framework/code/main.py")
-    print(f"      ^ verify MODEL_NAMES order matches reports.csv.")
+    print(f"Files that need Claude + human review BEFORE running 03_test:")
     print(f"  {fork}/model/framework/columns/run_columns.csv")
     print(f"      ^ rewrite each sub-model row per the factual-only style memory")
     print(f"        (Probability from sub-model trained on … (cutoff X; n=Y)).")
     print(f"  {fork}/metadata.yml")
     print(f"      ^ verify Title >= 70 chars, Description >= 200 chars,")
     print(f"        Interpretation < 200 chars, Tag entries in controlled vocab.")
+    print(f"main.py + consensus.py are family-templates — no per-pathogen edits needed.")
     print(f"Then:  python scripts/03_test_pathogen.py --pathogen {pathogen}")
 
 

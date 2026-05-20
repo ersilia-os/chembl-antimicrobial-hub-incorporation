@@ -86,19 +86,18 @@ def main():
     out_csv  = "model/framework/examples/run_output.csv"
     cols_csv = "model/framework/columns/run_columns.csv"
 
-    # Descriptor weights are gitignored and downloaded at install time on the Hub
-    # (see install.yml). Locally we reuse one shared cam-models-runtime env across
-    # all 15 pathogens, so install.yml's setup line only ran for the first fork.
-    # Materialise the per-pathogen subset into THIS fork's tree on demand.
+    # Descriptor weights live in $HOME/.lazyqsar/ (lazyqsar's default). Materialise
+    # the per-pathogen subset on demand if a sentinel weight is missing.
     needed = _descriptors_needed(fork)
-    sentinel = os.path.join(fork, "model/checkpoints/featurizer_weights_home/.lazyqsar",
-                            f"{needed[0]}_mp.pt" if needed and needed[0] == "chemeleon"
-                            else f"{needed[0]}_encoder.onnx")
+    sentinel_name = (
+        f"{needed[0]}_mp.pt" if needed and needed[0] == "chemeleon"
+        else f"{needed[0]}_encoder.onnx" if needed else None
+    )
+    sentinel = os.path.expanduser(f"~/.lazyqsar/{sentinel_name}") if sentinel_name else None
     if needed and not os.path.exists(sentinel):
         print(f"[0/4] descriptor weights missing — running lazyqsar setup --only {','.join(needed)}...")
         res = _run_in_runtime_env(
-            f"lazyqsar setup --descriptors --only {','.join(needed)} "
-            f"--target-dir model/checkpoints/featurizer_weights_home/.lazyqsar",
+            f"lazyqsar setup --descriptors --only {','.join(needed)}",
             cwd=fork,
         )
         if res.returncode != 0:
@@ -134,7 +133,9 @@ def main():
         sys.exit(f"FAIL: values out of range. min={vmin} max={vmax}")
 
     print(f"[4/4] reproducibility (byte-identical re-run)?")
-    tmp = out_csv + ".check"
+    # ersilia-pack-utils' write_out dispatches on the trailing .csv/.bin
+    # extension, so the verify-run output must keep .csv at the end.
+    tmp = out_csv.replace(".csv", ".check.csv")
     res = _run_in_runtime_env(
         f"bash model/framework/run.sh model/framework {in_csv} {tmp}",
         cwd=fork,
